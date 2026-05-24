@@ -1,0 +1,14 @@
+# Copy this file to local_paths.yaml if you want to keep local machine paths outside scripts.
+# local_paths.yaml should be ignored by git in a public repository.
+
+ubuntu:
+  project_root: "/home/<user>/unitree_go2_isaaclab_rl"
+  isaaclab_root: "/home/<user>/IsaacLab"
+  conda_env: "isaaclab"
+  log_root: "/home/<user>/unitree_go2_isaaclab_rl/logs"
+
+windows:
+  project_root: "G:\\rt_isaaclab_ws\\projects\\unitree_go2_isaaclab_rl"
+  isaaclab_root: "G:\\rt_isaaclab_ws\\repos\\IsaacLab_v2.3.2"
+  isaac_python: "G:\\rt_isaaclab_ws\\repos\\IsaacLab_v2.3.2\\_isaac_sim\\python.bat"
+  log_root: "G:\\rt_isaaclab_ws\\logs\\unitree_go2_isaaclab_rl"

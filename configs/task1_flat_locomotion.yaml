@@ -1,0 +1,138 @@
+task:
+  name: "go2_task1_flat_locomotion"
+  description: "Unitree Go2 flat-ground locomotion baseline."
+  algorithm: "skrl_ppo"
+  isaaclab: true
+
+environment:
+  num_envs_default: 1024
+  sim_dt: 0.005
+  decimation: 4
+  control_dt: 0.02
+  max_episode_length: 1000
+  env_spacing: 2.5
+  num_observations: 87
+  num_privileged_obs: 0
+  num_actions: 12
+
+robot:
+  action_joint_names:
+    - FL_hip_joint
+    - FR_hip_joint
+    - RL_hip_joint
+    - RR_hip_joint
+    - FL_thigh_joint
+    - FR_thigh_joint
+    - RL_thigh_joint
+    - RR_thigh_joint
+    - FL_calf_joint
+    - FR_calf_joint
+    - RL_calf_joint
+    - RR_calf_joint
+  foot_body_names:
+    - FL_foot
+    - FR_foot
+    - RL_foot
+    - RR_foot
+
+control:
+  action_ema_alpha: 0.55
+  hip_action_scale: 0.20
+  thigh_action_scale: 0.35
+  calf_action_scale: 0.35
+  max_joint_vel_abs: 65.0
+
+curriculum:
+  curriculum_total_steps: 350000000
+  resample_command_steps: 200
+  zero_command_prob: 0.08
+  command_smoothing: 0.12
+  stages:
+    stage0:
+      cmd_vx: [0.0, 0.0]
+      cmd_vy: [0.0, 0.0]
+      cmd_wz: [0.0, 0.0]
+    stage1:
+      cmd_vx: [0.0, 0.18]
+      cmd_vy: [0.0, 0.0]
+      cmd_wz: [0.0, 0.0]
+    stage2:
+      cmd_vx: [0.10, 0.45]
+      cmd_vy: [0.0, 0.0]
+      cmd_wz: [0.0, 0.0]
+    stage3:
+      cmd_vx: [0.15, 0.75]
+      cmd_vy: [0.0, 0.0]
+      cmd_wz: [-0.25, 0.25]
+    stage4:
+      cmd_vx: [-0.15, 1.00]
+      cmd_vy: [-0.25, 0.25]
+      cmd_wz: [-0.45, 0.45]
+    stage5:
+      cmd_vx: [-0.25, 1.20]
+      cmd_vy: [-0.35, 0.35]
+      cmd_wz: [-0.60, 0.60]
+
+robot_state:
+  target_height: 0.32
+  fall_height: 0.18
+  jump_height: 0.55
+  bad_orientation_xy: 0.75
+
+gait:
+  gait_freq_hz: 2.0
+  contact_force_threshold: 1.0
+  duty_factor: 0.55
+  foot_clearance_target: 0.075
+  air_time_target: 0.16
+
+reward:
+  w_cmd_lin: 0.18
+  w_cmd_yaw: 0.08
+  w_cmd_speed: 0.35
+  w_under_speed: 0.22
+  w_double_contact: 0.10
+  w_stand_still: 0.03
+  w_phase_contact: 0.13
+  w_air_time: 0.10
+  w_clearance: 0.09
+  w_upright: 0.09
+  w_height: 0.09
+  w_base_ang_vel: 0.035
+  w_base_acc: 0.001
+  w_z_vel: 0.015
+  w_default_pose: 0.025
+  w_alive: 0.002
+  w_joint_limit: 0.05
+  w_action_rate: 0.008
+  w_action_mag: 0.002
+  w_foot_slip: 0.06
+  w_torque: 0.00025
+  w_energy: 0.0008
+  penalty_fall: -5.0
+  sigma_cmd_lin: 4.0
+  sigma_cmd_yaw: 4.0
+  sigma_stand: 8.0
+  sigma_height: 30.0
+  continuous_reward_clip: 1.0
+  episode_return_abs_limit: 1000.0
+
+training_default:
+  frame_stack: 5
+  actor_obs_dim: 435
+  critic_obs_dim: 435
+  total_env_steps: 350000000
+  rollouts: 64
+  learning_epochs: 5
+  mini_batches: 8
+  learning_rate: 0.0001
+  min_learning_rate: 0.00002
+  max_learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  kl_threshold: 0.015
+  entropy_coef: 0.003
+  value_coef: 2.0
+  grad_clip: 1.0
+  ratio_clip: 0.2
+  value_clip: 0.2

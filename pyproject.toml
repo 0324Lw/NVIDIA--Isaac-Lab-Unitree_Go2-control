@@ -1,0 +1,8 @@
+[project]
+name = "unitree-go2-isaaclab-rl"
+version = "0.1.0"
+description = "Unitree Go2 multi-task reinforcement learning project based on Isaac Lab and skrl PPO."
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]

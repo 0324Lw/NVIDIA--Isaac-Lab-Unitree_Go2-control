@@ -1,0 +1,30 @@
+platform:
+  name: "windows_3090"
+  role: "large_scale_training"
+  os: "windows"
+  gpu_hint: "RTX 3090 / 3090 Ti 24GB"
+  default_device: "cuda:0"
+
+paths:
+  project_root: "G:\\rt_isaaclab_ws\\projects\\unitree_go2_isaaclab_rl"
+  isaaclab_root: "G:\\rt_isaaclab_ws\\repos\\IsaacLab_v2.3.2"
+  isaac_python: "G:\\rt_isaaclab_ws\\repos\\IsaacLab_v2.3.2\\_isaac_sim\\python.bat"
+  log_root: "G:\\rt_isaaclab_ws\\logs\\unitree_go2_isaaclab_rl"
+
+runtime:
+  shell: "powershell"
+  headless_default: true
+  approval_env_for_smoke: "GO2_TASK1_WINDOWS_SMOKE_APPROVED"
+  approval_env_for_training: "GO2_TASK1_WINDOWS_TRAIN_APPROVED"
+
+task1:
+  smoke_num_envs: 64
+  smoke_total_env_steps: 65536
+  first_train_num_envs: 512
+  first_train_total_env_steps: 20000000
+  full_train_num_envs: 1024
+  full_train_total_env_steps: 350000000
+  rollouts: 64
+  summary_interval: 20
+  tb_log_interval_steps: 100
+  skrl_write_interval: 1000000

@@ -1,0 +1,38 @@
+task:
+  name: "go2_task4_sim2real_rma_robust_locomotion"
+  description: "Unitree Go2 Sim2Real / RMA robust locomotion teacher-student environment."
+  algorithm: "skrl_ppo"
+  isaaclab: true
+  default_mode: "teacher"
+
+observation:
+  frame_stack: 5
+  single_actor_obs_dim: 48
+  actor_obs_dim: 240
+  privileged_obs_dim: 25
+  teacher_obs_dim: 265
+  teacher_mode: true
+
+curriculum:
+  curriculum_total_steps: 400000000
+  stage_thresholds: [0.0, 0.10, 0.24, 0.42, 0.62, 0.80]
+  stages:
+    - "clean locomotion"
+    - "light noise + friction + weak push"
+    - "light payload / COM shift"
+    - "medium disturbance"
+    - "motor degradation"
+    - "full robust Sim2Real"
+
+sim:
+  sim_dt: 0.005
+  decimation: 4
+  policy_dt: 0.02
+  max_episode_length_s: 20.0
+  env_spacing: 3.0
+
+robot:
+  name: "Unitree Go2"
+  action_dim: 12
+  target_height: 0.30
+  action_scale: 0.25

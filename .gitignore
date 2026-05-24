@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual env
+.venv/
+venv/
+env/
+conda_env/
+*.egg-info/
+
+# Isaac / simulation cache
+.kit/
+.cache/
+omniverse/
+*.usd.bak
+*.usdc.bak
+
+# Logs / training outputs
+logs/
+runs/
+outputs/
+checkpoints/
+wandb/
+tensorboard/
+events.out.tfevents.*
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Large data
+*.npz
+*.npy
+*.pkl
+*.pickle
+*.hdf5
+*.h5
+
+# System / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.log
+*.bak

@@ -1,0 +1,124 @@
+task:
+  name: "go2_task2_multiterrain_locomotion"
+  description: "Unitree Go2 multi-terrain and multi-material locomotion."
+  algorithm: "skrl_ppo"
+  isaaclab: true
+
+environment:
+  num_envs_default: 1024
+  sim_dt: 0.005
+  decimation: 4
+  control_dt: 0.02
+  max_episode_length: 1200
+  num_observations: 87
+  num_privileged_obs: 178
+  num_actions: 12
+
+terrain:
+  num_terrain_types: 4
+  num_levels: 10
+  terrain_types:
+    - rough_flat
+    - slopes
+    - stepping_stones
+    - stairs
+
+  terrain_length: 8.0
+  terrain_width: 8.0
+  horizontal_scale: 0.1
+  vertical_scale: 0.005
+  border_width: 1.0
+  platform_width: 2.0
+
+  spawn_radius: 0.65
+  spawn_height_offset: 0.36
+
+  flat_retention_ratio: 0.15
+
+  rough:
+    amplitude_min: 0.000
+    amplitude_max: 0.070
+    noise_step: 0.035
+
+  slope:
+    slope_min: 0.02
+    slope_max: 0.38
+
+  stepping_stones:
+    grid_width_min: 0.55
+    grid_width_max: 0.32
+    height_min: 0.015
+    height_max: 0.120
+
+  stairs:
+    step_width_min: 0.42
+    step_width_max: 0.28
+    step_height_min: 0.025
+    step_height_max: 0.135
+
+material:
+  material_count: 3
+  friction_range: [0.35, 1.45]
+  restitution_range: [0.00, 0.12]
+  low_friction_range: [0.35, 0.65]
+  normal_friction_range: [0.70, 1.05]
+  high_friction_range: [1.05, 1.45]
+
+height_scan:
+  scan_x_min: -0.80
+  scan_x_max: 1.20
+  scan_y_min: -0.60
+  scan_y_max: 0.60
+  scan_num_x: 9
+  scan_num_y: 9
+  height_scan_dim: 81
+  height_scan_clip: 2.0
+
+privileged_terrain:
+  terrain_priv_dim: 91
+  layout:
+    height_scan: 81
+    friction: 1
+    terrain_type_onehot: 4
+    difficulty: 1
+    terrain_params: 4
+
+curriculum:
+  terrain_curriculum_total_steps: 600000000
+  success_distance: 1.4
+  failure_distance: 0.45
+  downgrade_forgiveness_prob: 0.70
+  max_level_reset_to_min: 4
+  max_level_reset_to_max: 6
+
+robot:
+  action_joint_names:
+    - FL_hip_joint
+    - FR_hip_joint
+    - RL_hip_joint
+    - RR_hip_joint
+    - FL_thigh_joint
+    - FR_thigh_joint
+    - RL_thigh_joint
+    - RR_thigh_joint
+    - FL_calf_joint
+    - FR_calf_joint
+    - RL_calf_joint
+    - RR_calf_joint
+  foot_body_names:
+    - FL_foot
+    - FR_foot
+    - RL_foot
+    - RR_foot
+
+training_default:
+  frame_stack: 5
+  actor_obs_dim: 435
+  critic_obs_dim_note: "Task2 should use asymmetric critic. Final stacked critic design is decided in task2_train.py."
+  total_env_steps: 600000000
+  rollouts: 64
+  learning_epochs: 5
+  mini_batches: 8
+  learning_rate: 0.00005
+  min_learning_rate: 0.00002
+  max_learning_rate: 0.00012
