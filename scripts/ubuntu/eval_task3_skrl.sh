@@ -14,7 +14,7 @@ cd "${PROJECT_ROOT}"
 export PYTHONPATH="${PROJECT_ROOT}/src:${PYTHONPATH}"
 
 CKPT="$1"
-START_K="${2:-0.12}"
+START_K="${2:-1.0}"
 
 python src/go2_rl/tasks/task3/task3_model_test.py \
   --checkpoint "${CKPT}" \

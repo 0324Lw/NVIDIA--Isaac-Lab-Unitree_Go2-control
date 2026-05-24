@@ -23,3 +23,56 @@ events.out.tfevents.*
 *.tmp
 *.log
 *.bak
+
+# RL_OPEN_SOURCE_SCAFFOLD_IGNORE_BEGIN
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE / system
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Training logs and outputs
+logs/
+outputs/
+runs/
+wandb/
+tensorboard/
+*.log
+
+# Checkpoints / model weights
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+
+# Large generated data
+*.npz
+*.npy
+*.pkl
+*.h5
+*.hdf5
+
+# Isaac / local cache
+.cache/
+.cache_isaaclab/
+kit/
+omni.*
+isaacsim.*
+
+# Local environment / private paths
+.env
+*.local.json
+windows_paths.local.json
+# RL_OPEN_SOURCE_SCAFFOLD_IGNORE_END

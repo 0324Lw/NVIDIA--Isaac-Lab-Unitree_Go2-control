@@ -28,11 +28,17 @@ parser.add_argument("--checkpoint", type=str, required=True)
 parser.add_argument("--num-envs", type=int, default=16)
 parser.add_argument("--steps", type=int, default=2000)
 parser.add_argument("--seed", type=int, default=42)
-parser.add_argument("--start-k", type=float, default=0.0)
+parser.add_argument("--start-k", type=float, default=1.0)
 parser.add_argument("--print-interval", type=int, default=100)
+parser.add_argument("--visualize", action="store_true", help="Open Isaac Sim GUI for lightweight visualization")
+parser.add_argument("--no-close-on-exit", action="store_true", help="Debug only: do not explicitly call None if bool(getattr(args_cli, 'no_close_on_exit', False)) else simulation_app.close()")
 AppLauncher.add_app_launcher_args(parser)
 args_cli, _ = parser.parse_known_args()
-args_cli.headless = True
+args_cli.headless = not bool(getattr(args_cli, 'visualize', False))
+# Default to stable headless evaluation. Use --visualize only for GUI.
+args_cli.headless = not bool(getattr(args_cli, 'visualize', False))
+# Model evaluation should open Isaac Sim GUI by default.
+# Do not force headless here. Pass --headless manually if needed.
 
 simulation_app = AppLauncher(args_cli).app
 
@@ -50,6 +56,8 @@ except ImportError:
 from go2_rl.common.go2_skrl_models import Go2Actor, Go2Critic
 from go2_rl.common.go2_skrl_wrappers import Go2FrameStackWrapper
 from go2_rl.common.info_utils import flat_dict, load_normalizers
+from go2_rl.common.eval_curriculum_utils import force_eval_curriculum
+from go2_rl.common.model_eval_utils import direct_policy_action, init_agent_compat
 from go2_rl.tasks.task1.task1_config import Task1Config
 from go2_rl.tasks.task1.task1_env import Go2Task1Env
 
@@ -178,6 +186,7 @@ def main():
     cfg.debug_print_names = False
 
     base_env = Go2Task1Env(cfg)
+    force_eval_curriculum(base_env, args_cli.start_k, label="after_env_creation")
 
     if args_cli.start_k > 0:
         base_env.global_steps = int(float(args_cli.start_k) * cfg.curriculum_total_steps)
@@ -192,7 +201,16 @@ def main():
     env = wrap_env(stacked_env, wrapper="isaaclab")
 
     agent = build_agent(env)
-    agent.init(trainer_cfg={"timesteps": 1, "headless": True})
+    # skrl compatibility:
+    # Some skrl versions expect trainer_cfg to be a dataclass, not a plain dict.
+    # For evaluation, trainer_cfg is not required, so fallback to agent.init().
+    try:
+        init_agent_compat(agent)
+    except TypeError as exc:
+        if "asdict" not in str(exc) and "dataclass" not in str(exc):
+            raise
+        print("[WARN] agent.init(trainer_cfg=dict) is not supported by this skrl build; fallback to agent.init().")
+        agent.init()
 
     checkpoint = Path(args_cli.checkpoint).expanduser().resolve()
     if not checkpoint.exists():
@@ -210,7 +228,9 @@ def main():
     except Exception:
         pass
 
+    force_eval_curriculum(base_env if "base_env" in locals() else env, args_cli.start_k, label="before_rollout_reset")
     states, _ = reset_env(env)
+    force_eval_curriculum(base_env if "base_env" in locals() else env, args_cli.start_k, label="after_rollout_reset")
 
     records = []
     total_terminated = 0
@@ -220,6 +240,7 @@ def main():
     print("\n" + "=" * 120)
     print("Unitree Go2 Task1 skrl model test started")
     print("=" * 120)
+    print(f"[INFO] model_test requested start_k = {args_cli.start_k}")
     print(f"checkpoint : {checkpoint}")
     print(f"num_envs   : {env.num_envs}")
     print(f"steps      : {args_cli.steps}")
@@ -230,8 +251,17 @@ def main():
         with tqdm(total=int(args_cli.steps), desc="Go2 Task1 Model Test", dynamic_ncols=True, mininterval=0.5) as pbar:
             for step in range(int(args_cli.steps)):
                 with torch.no_grad():
-                    actions = agent.act(states, timestep=step, timesteps=int(args_cli.steps))[0]
+                    print(f"[DEBUG][eval step {step}] before direct_policy_action", flush=True)
+                    actions = direct_policy_action(
+                        agent,
+                        states,
+                        debug=(step < 3),
+                        step=int(step),
+                    )
+                    print(f"[DEBUG][eval step {step}] after direct_policy_action", flush=True)
+                    print(f"[DEBUG][eval step {step}] before env.step", flush=True) if step < 3 else None
                     states, rewards, terminated, truncated, _ = step_env(env, actions)
+                    print(f"[DEBUG][eval step {step}] after env.step", flush=True) if step < 3 else None
 
                 total_terminated += int(terminated.sum().item())
                 total_truncated += int(truncated.sum().item())
@@ -279,7 +309,7 @@ def main():
             pass
 
         try:
-            simulation_app.close()
+            None if bool(getattr(args_cli, 'no_close_on_exit', False)) else simulation_app.close()
         except Exception:
             pass
 
