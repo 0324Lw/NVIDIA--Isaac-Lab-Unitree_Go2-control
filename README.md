@@ -1,493 +1,600 @@
-# 🐕 基于 NVIDIA Isaac Lab 的 Unitree Go2 四足机器狗 RL 步态与控制
-
+# 🐕 基于 NVIDIA Isaac Lab 的 Unitree Go2 四足机器狗强化学习控制项目
+ 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-orange)
-![OS](https://img.shields.io/badge/os-Ubuntu_24.04-green)
-![Isaac](https://img.shields.io/badge/Isaac%20Lab-0.54-brightgreen)
-
-本项目致力于使用深度强化学习实现 12 自由度（12-DOF）四足机器人 Unitree Go2 的自主步态生成、复杂地形穿越及抗外力干扰控制，并面向真实物理样机进行高鲁棒性的 Sim2Real（仿真到现实）部署准备。
-本项目彻底摒弃了老旧的 Legged_Gym 框架，基于 NVIDIA 官方开源的下一代物理仿真平台 Isaac Lab，直接调用其内部高精度校准的 Go2 原生核心资产。项目采用纯张量化的并行训练架构，核心控制逻辑采用业界前沿的“高频底层 PD 闭环 + 低频 RL 目标残差策略”，精确地模拟了宇树真实电机的物理阻尼与发力极限。
-
+![Isaac Lab](https://img.shields.io/badge/Isaac%20Lab-2.x-brightgreen)
+![skrl](https://img.shields.io/badge/RL-skrl%20PPO-purple)
+![OS](https://img.shields.io/badge/OS-Ubuntu%20%7C%20Windows-green)
+ 
+本项目是一个基于 NVIDIA Isaac Lab 的 Unitree Go2 四足机器人强化学习训练项目。项目包含 4 个递进任务：平地速度跟踪、多地形运动、自主导航与避障、Sim2Real / RMA 抗扰训练。
+ 
+这个仓库最开始是我在学习强化学习时做的个人 demo。后来我对代码进行了重新整理和工程化重构：统一了项目目录结构，统一采用 `skrl` 的 PPO 训练流程，增加了环境测试、世界模型测试、模型测试、Ubuntu / Windows 脚本、训练进度条、日志与 checkpoint 管理。希望这个项目能为同样在学习 Isaac Lab、四足机器人控制和强化学习的同学提供一个可参考、可复现、可继续修改的基础工程。
+项目重点不是追求完美训练，而是把每个任务从环境、测试、训练到评估尽量拆清楚。代码中仍然会有可以继续改进的地方，欢迎大家根据自己的 Isaac Lab 版本、显卡配置和研究目标继续修改。
+ 
 ---
-
-## 🛠️ 硬件与系统要求 (Hardware & OS)
-
-* **操作系统**：Ubuntu 24.04 LTS
-* **GPU 算力**：NVIDIA RTX 5060 Laptop (8GB VRAM) 或同等支持 Ada Lovelace 架构的显卡 
-* **底层驱动**：CUDA 12.x，显卡驱动版本 $\ge$ 580.126
-* **仿真平台**：Isaac Sim 4.x + Isaac Lab 0.54
-* **环境管理**：Miniconda / Anaconda
-
+ 
+## 🎬 训练效果展示
+ 
+| Scene | Preview |
+|---|---|
+| 平地 / 多地形运动 | ![Go2 locomotion demo](assets/gifs/go2_locomotion_demo.gif) |
+| 导航 / 避障 / 抗扰 | ![Go2 navigation demo](assets/gifs/go2_navigation_demo.gif) |
+ 
 ---
-
-## 🚀 基础准备：物理仿真环境配置
-本项目依赖于 NVIDIA Isaac 系列套件，请确保已按照官方文档安装好基础环境，并激活了对应的 Conda 虚拟环境。
-### Step 1. 创建虚拟环境与安装 Isaac Lab
-建议使用 Isaac Lab 自带的整合安装脚本，确保所有 C++ 刚体动力学扩展（如 TGS 解算器）被正确编译：
+ 
+## ✨ 项目特点
+ 
+- 基于 NVIDIA Isaac Lab 和 Unitree Go2 机器人资产。
+- 包含 4 个递进任务，从基础平地运动到复杂地形、导航避障和 Sim2Real 抗扰训练。
+- 所有任务统一使用 `skrl` PPO 训练框架。
+- 每个任务提供独立的环境测试、训练脚本和模型测试脚本。
+- Task2 / Task3 将 world 逻辑与 IsaacLab 物理环境分离，方便单独测试地形、障碍物、雷达和课程逻辑。
+- 支持 Ubuntu / Windows 本地开发、测试和训练。
+- 训练采用 `tqdm` 进度条，方便查看实时进度和日志信息。
+ 
+---
+ 
+## 📁 项目结构
+ 
+```text
+unitree_go2_isaaclab_rl/
+├── configs/
+│   ├── task1_locomotion.yaml
+│   ├── task2_terrain.yaml
+│   ├── task3_navigation.yaml
+│   └── task4_sim2real_rma.yaml
+├── src/
+│   └── go2_rl/
+│       ├── common/
+│       │   ├── go2_skrl_models.py
+│       │   ├── info_utils.py
+│       │   └── paths.py
+│       └── tasks/
+│           ├── task1/
+│           │   ├── task1_config.py
+│           │   ├── task1_env.py
+│           │   ├── task1_train.py
+│           │   └── task1_model_test.py
+│           ├── task2/
+│           │   ├── task2_config.py
+│           │   ├── task2_world.py
+│           │   ├── task2_env.py
+│           │   ├── task2_train.py
+│           │   └── task2_model_test.py
+│           ├── task3/
+│           │   ├── task3_config.py
+│           │   ├── task3_world.py
+│           │   ├── task3_env.py
+│           │   ├── task3_train.py
+│           │   └── task3_model_test.py
+│           └── task4/
+│               ├── task4_config.py
+│               ├── task4_env.py
+│               ├── task4_train.py
+│               └── task4_model_test.py
+├── tests/
+│   ├── task1/
+│   ├── task2/
+│   ├── task3/
+│   └── task4/
+├── scripts/
+│   ├── ubuntu/
+│   └── windows/
+├── logs/
+├── assets/
+│   ├── gifs/
+│   └── images/
+├── LICENSE
+└── README.md
+```
+ 
+| 目录 | 说明 |
+|---|---|
+| `configs/` | 每个任务的配置文件，便于统一管理任务参数。 |
+| `src/go2_rl/common/` | 通用网络模型、日志工具、路径工具等。 |
+| `src/go2_rl/tasks/taskX/` | 每个任务的环境、世界模型、训练脚本和模型测试脚本。 |
+| `tests/` | 环境测试和世界模型测试脚本。 |
+| `scripts/ubuntu/` | Ubuntu 下的测试、训练、评估脚本。 |
+| `scripts/windows/` | Windows / RTX 3090 下的准备检查、训练、评估脚本。 |
+| `logs/` | 默认训练日志和 checkpoint 输出目录。 |
+| `assets/` | README 图片、GIF 和其他展示素材。 |
+ 
+---
+ 
+## 🛠️ 建议硬件与系统配置
+ 
+### 最低测试配置
+ 
+用于环境测试、world 测试、smoke training 和低并发调试：
+ 
+- Ubuntu 22.04 / 24.04
+- NVIDIA GPU，显存 16GB 左右
+- Python 3.11
+- PyTorch 2.x
+- Isaac Sim / Isaac Lab
+- `skrl`, `tensorboard`, `tqdm`
+ 
+在 16GB 显存设备上，建议从小并发开始：
+ 
 ```bash
-# 进入 Isaac Lab 根目录
-cd IsaacLab
-# 创建并安装环境
-./isaaclab.sh --install
+--num-envs 16
+--num-envs 32
+--num-envs 64
+--num-envs 128
 ```
-### Step 2. 安装强化学习扩展库
-本项目在四足控制域采用高度模块化且极其稳定的 Stable-Baselines3 (SB3) 作为 PPO 算法后端，需手动安装：
-```Bash
-pip install stable-baselines3 pandas matplotlib
-```
-### Step 3. 物理引擎与底层 PD 驱动测试
-四足机器人不具备轮式底盘的天然稳定性，在进入神经网络训练之前，必须首先验证 12 个关节的底层 PD 控制器是否正常运作：
-```Bash
-# 运行底层物理验证脚本，向 PD 控制器下发预设的关节位置残差
-python control_go2.py
-```
-(预期结果)：弹出 Isaac Sim 3D 图形界面，场景中出现 4 只 Unitree Go2。它们将从“断电瘫软”状态瞬间笔挺站立，并以 0.5Hz 的频率整齐划一地执行原地深蹲动作。可用鼠标拖拽狗的躯干，感受极其逼真的 Kp/Kd 刚体阻尼反馈。
-
-## ➡️ Task 1: 稳定站立与速度跟踪
-本任务要求 Unitree Go2 四足机器人在无限大的平坦地形上，通过底层 PD 控制器与强化学习策略的结合，从零学习稳定的站立与奔跑步态，并在不摔倒的前提下精准追踪随机下发的全向速度指令。
-
-### 1. 任务描述
-**初始状态**：机器狗出生在无限平坦的场景中，处于约 0.35m 高度的默认站立姿态（其中关节预设为：Hip 约 0，Thigh 约 0.8，Calf 约 -1.5 弧度）。
-
-**环境配置**：
-- **赛道布局**：无限大且无障碍物的高摩擦平坦地面（如柏油路面模拟）。
-- **驱动模拟**：采用 Isaac Lab 原生核心资产，执行频率为 200Hz 的高频物理仿真，模拟了宇树真实电机的 Kp/Kd 刚体阻尼反馈与发力极限。
-- **指令生成**：每回合（Episode）为每只狗随机分配目标线速度（如 $v_x \in [0.5, 1.5]$）与角速度指令。
-
-**任务目标**：输出 12 个关节的目标残差，驱使机器狗自主摸索出交替步态（如 Trot 对角小跑），平稳追踪目标指令。
-
-**判定标准**：
-- **过程标准**：机身高度稳定在 0.3m 左右，平均速度误差极小，且无显著的姿态摇晃。
-- **完赛标准**：活到设定的回合最大步数（例如 1000 步，约 20 秒）且未发生致命物理跌倒。
-
-**挑战**：四足系统具备极高的自由度（12-DOF），且不依赖传统的轨迹发生器（如 CPG）。模型必须自主克服维度爆炸问题，并学会抬腿迈步以避免陷入“拖步子”的局部最优解。
-
-### 2. 代码架构与运行指南
-本任务的核心代码位于 `task1` 文件夹下。
-
+ 
+### 推荐训练配置
+ 
+用于较大规模训练和长时间实验：
+ 
+- NVIDIA RTX 3090 / 4090 或同级别 GPU
+- 显存 24GB 或更高
+- Windows 或 Ubuntu 均可，但需要保证 Isaac Lab 环境可正常运行
+ 
+较大显存设备可以尝试：
+ 
 ```bash
-# 获取项目代码
-git clone https://github.com/0324Lw/NVIDIA--Isaac-Lab-Unitree_Go2-control.git
-cd NVIDIA--Isaac-Lab-Unitree_Go2-control/task1
+--num-envs 512
+--num-envs 1024
+--num-envs 2048
 ```
-
-| 文件名 | 功能说明 |
-|--------|----------|
-| `task1_env.py` | 机器狗平地环境类。封装了 3 帧特征堆叠、EMA 动作滤波机制以及基于有界高斯函数的奖励计算。 |
-| `task1_env_test.py` | 极限压测脚本。在无头模式下通过纯随机动作进行数百万帧的推演，利用 Pandas 分析各奖励组件的数值稳定性与截断逻辑。 |
-| `task1_train.py` | SB3 训练主程序。包含将 GPU Tensor 映射为 CPU NumPy 的自定义 Wrapper，并集成了状态归一化（VecNormalize）和学习率衰减调度器。 |
-| `task1_model_test.py` | 模型推理与可视化脚本。挂载归一化词典，在 GUI 中展示多只机器狗以列阵形式执行 “全速冲锋”、“蟹步横走” 等战术指令。 |
-
-运行训练代码：
+ 
+具体并发数需要根据任务复杂度、显存占用和 Isaac Lab 版本调整。不要一开始直接使用最大并发，建议先运行 smoke training。
+ 
+---
+ 
+## 🚀 基础准备
+ 
+### 1. 安装 Isaac Lab 环境
+ 
+请先按照 NVIDIA Isaac Lab 官方文档安装 Isaac Sim / Isaac Lab，并确认 Isaac Lab 的 Python 环境可以正常导入：
+ 
 ```bash
-python task1_train.py
+python -c "import isaaclab; print('isaaclab ok')"
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
-
-### 3. 强化学习建模 (RL Modeling)
-针对四足机器人的高动态物理特性，本项目进行了如下建模设计：
-
-#### A. 状态空间设计 (Observation Space)
-采用 3 帧堆叠 (Frame Stacking) 以捕捉动态惯性，单帧 48 维，总计 **144 维**。为保证平移不变性，严格剥离了绝对坐标 $(X,Y)$：
-
-- 基座感知 (9 维)：机身线速度 $(v_x, v_y, v_z)$、机身角速度 $(\omega_x, \omega_y, \omega_z)$ 以及重力投影向量 $(g_x, g_y, g_z)$（用于隐式感知倾斜）。
-- 关节本体感知 (24 维)：12 个关节的当前角度残差（相对于默认姿态）及 12 个关节的当前角速度。
-- 任务指令 (3 维)：本回合随机生成的目标速度指令 $v_{x\_cmd}, v_{y\_cmd}, \omega_{z\_cmd}$。
-- 动作记忆 (12 维)：上一帧网络输出的动作指令，协助网络理解控制的连续性。
-
-#### B. 动作空间与物理控制 (Action Space)
-
-- 输出定义：12 维连续值，范围限定在 $[-1.0, 1.0]$。
-- 物理映射：网络输出乘以缩放系数（$Scale=0.25$ 弧度），加上默认站立姿态 (Default Posture)，作为最终目标角度下发给底层 C++ PD 控制器。
-- 平滑机制：在传给底层前引入 $\alpha=0.5$ 的动作指数移动平均（EMA）滤波，防止高频抽搐并保护真实电机。
-
-#### C. 奖励函数设计 (Reward Shaping)
-彻底摒弃可能导致 “策略自杀” 的线性惩罚，所有连续控制项均采用有界高斯函数进行塑造，使得单步连续奖励严格收拢在 $(0,1]$ 之间：
-
-- 速度与高度追踪：对于偏离指令的速度和基座高度，通过高斯平滑衰减给出得分，完美匹配则趋近于满权重。
-- 姿态平稳：利用重力投影在 XY 轴的分量，严厉惩罚机身的 Roll 和 Pitch 摇晃，要求稳定跑动。
-- 能耗与平滑约束：对动作差分 $\|a_t - a_{t-1}\|^2$ 和电机扭矩 $\|\tau\|^2$ 进行高斯惩罚，抑制大电流。
-- 跌倒极刑判定：一旦机器狗的躯干 (Base) 或大腿 (Thigh) 发生物理触地，立刻触发 $-20.0$ 的固定极刑惩罚并重置该环境。
-
-
-### 4. 算法与训练细节
-#### 核心算法
-
-- 算法框架：基于 Stable-Baselines3 的 PPO 算法。
-- 网络架构：采用纯 MLP `[512, 256, 128]` 结构，激活函数使用 ELU，在零点附近提供比 ReLU 更平滑的梯度衔接，输出动作更柔和。
-
-#### 稳定性控制
-
-- 状态归一化：利用 `VecNormalize` 动态统计并归一化观测值至 $\mathcal{N}(0,1)$ 分布，解决关节角度与角速度量纲差异过大导致的梯度雪崩。
-- 双轨衰减策略：对学习率（Learning Rate）和 PPO 截断幅度（Clip Range）同时采用线性衰减策略，保障训练后期的极致收敛。
-- 频域隔离：RL 控制频率设定为 50Hz（Decimation = 4），而底层物理引擎以 200Hz 运行，确保 PD 闭环的高精度解算不受干扰。
-
-## ➡️ Task 2: 复杂地形盲爬与自适应课程学习
-本任务要求 Unitree Go2 四足机器人在高度复杂的非结构化地形（波浪粗糙平地、倾斜斜坡、不规则乱石滩、离散台阶）中，仅依靠本体感受器（无视觉盲爬），通过强化学习与非对称课程学习机制，自主涌现出小跑步态，实现全地形的高速、稳定穿越。
-
-### 1. 任务描述
-**初始状态**：机器狗随机出生在 $8m \times 8m$ 的地形矩阵方块中心，处于默认站立姿态。
-
-**环境配置**：
-- **地形矩阵（Terrain Grid）**：包含 4 种典型复杂地形（Rough Flat, Slopes, Stepping Stones, Stairs），且每种地形划分为 10 个难度等级（Level 0 ~ Level 9）。
-- **物理极限标定**：针对无视觉“盲爬”的物理天花板进行了严格的现实降维（如台阶最高 12cm，乱石高差最大 10cm，斜坡最大 20 度，并配置 $0.4 \sim 1.2$ 的高静摩擦系数），确保策略在物理学上具有可行性。
-- **指令生成**：支持宽泛的二维线速度指令抽取（如 $v_x \in [0.3, 1.2]$ m/s），侧重于训练机器狗的纵向极限越障能力。
-
-**任务目标**：输出 12 个关节的目标角度残差，在不依赖深度相机和激光雷达的前提下，利用肌肉记忆和四肢阻抗控制，自主学会抬腿避障与重心压低，实现跨地形的高速平移。
-
-**判定标准**：
-- **完美通关（Success）**：在当前地形中存活并向前平稳推进，无条件触发课程晋升。
-- **物理极刑（Fallen）**：躯干触地（高度过低）或发生极度翻滚（姿态倾角过大）或掉入悬崖。
-
-**核心挑战**：
-- **奖励作弊（Reward Hacking）**：机器狗极易陷入“原地抽搐白嫖步态分”或“贴地丧尸爬行”的局部最优解。
-- **灾难性遗忘（Catastrophic Forgetting）**：在高级地形训练时，容易忘却在平地高速奔跑的平顺性。
-- **梯度饥饿与课程搅动**：严苛的晋升条件会导致机器狗在地形边界频繁暴毙，导致高级地形的有效梯度被平地数据淹没。
-
-
-### 2. 代码架构与运行指南
-本任务的核心代码位于 `task2` 文件夹下。
-
+ 
+### 2. 克隆项目
+ 
 ```bash
-# 获取项目代码
-git clone https://github.com/0324Lw/NVIDIA--Isaac-Lab-Unitree_Go2-control.git
-cd NVIDIA--Isaac-Lab-Unitree_Go2-control/task2
+git clone <your-repo-url> unitree_go2_isaaclab_rl
+cd unitree_go2_isaaclab_rl
 ```
-
-| 文件名 | 功能说明 |
-|--------|----------|
-| `task2_world.py` | 世界模型与地形生成器。定义了 4 种地形的网格参数、物理降维极限，并内置了包含“非对称宽恕机制”的核心课程调度器。 |
-| `task2_env.py` | 强化学习主环境。封装了 5 帧时序堆叠、速度解耦防作弊逻辑、高度死区以及基于 60-20-20 黄金比例的工业级奖励函数。 |
-| `task2_train.py` | 训练发射器。集成了 CustomSb3VecEnvWrapper 修复了底层张量越界 Bug，并植入了直接穿透 PyTorch 优化器底层的 Adaptive KL 动态学习率调度器。 |
-| `task2_model_test.py` | 测试与评估脚本。自动索检最新训练权重，强制关闭观测值均值更新（冻结 VecNormalize），并在确定性模式下进行实时渲染推演。 |
-
-运行训练代码：
+ 
+如果你保留旧仓库名，也可以直接进入对应目录，只需要保证项目结构与 README 中的结构一致。
+ 
+### 3. 设置 PYTHONPATH
+ 
 ```bash
-python task2_train.py
+export PYTHONPATH=$PWD/src:$PYTHONPATH
 ```
-
-### 3. 强化学习建模 
-针对复杂非结构化地形中的盲爬任务，本系统在状态空间、动作滤波以及奖励函数上进行了精细的数学建模，确保机器狗在遵循物理规律的前提下涌现出小跑步态。
-
-#### A. 状态空间定义 
-为了在无视觉输入的情况下感知脚下地形的起伏，系统引入了 **5 帧历史堆叠 (Frame Stacking)** 机制。网络通过关节在时序上的受力反馈（本体感知）隐式构建局部地形的物理直觉。
-单帧观测包含以下维度：
-
-- **基座感知 (Base Perception)**
-  - 线速度 vx, vy, vz：机身坐标系下的线速度
-  - 角速度 ωx, ωy, ωz：机身坐标系下的角速度
-  - 重力投影向量 gx, gy, gz：世界重力向量在机身局部坐标系下的投影，隐式表达当前机身的 Roll和 Pitch倾角
-
-- **本体感知 (Proprioception)**
-  - 关节位置残差 Δq（12维实数向量）：当前 12 个关节角度与默认站立姿态的角度差
-  - 关节角速度 q_dot（12维实数向量）：当前 12 个关节的角速度
-
-- **指令感知 (Command)**
-  - 目标速度 vx_cmd, vy_cmd, ωz_cmd：本回合随机下发的全向速度追踪指令
-
-- **动作记忆 (Action History)**
-  - 上一帧动作 a_{t-1}（12维实数向量）：协助网络理解动作的连续性，降低高频震荡
-
-#### B. 动作空间与底层映射 
-神经网络不直接输出扭矩，而是输出 12 维的目标关节位置残差，下发给底层高频 PD 控制器进行位置闭环。
-
-1. **原始输出**
-动作原始输出 a_raw 为 12 维连续向量，取值范围 [-1.0, 1.0]
-
-2. **动作指数移动平均 (EMA) 滤波**
-防止网络输出高频阶跃信号烧毁物理电机：
-文本公式：`a_ema(t) = α * a_raw(t) + (1-α) * a_ema(t-1)`
-本任务中平滑系数 α = 0.5
-
-3. **物理映射**
-将滤波后的动作乘以缩放系数，叠加至默认站立姿态：
-文本公式：`q_target = q_default + a_ema * ActionScale`
-本任务中动作缩放系数 ActionScale = 0.25 rad
-
-#### C. 奖励函数设计 (Reward Shaping: 60-20-20 Rule)
-采用工业界标准的**60-20-20**张力平衡法则，将奖励拆分为**核心驱动 (65%)、步态涌现 (15%) 与平顺惩罚 (20%)** 三个互相对抗的梯队。
-
-##### 第一层：核心驱动层 (正向激励)
-采用严苛的高斯平滑追踪，杜绝“原地踏步白嫖”。
-- **前向速度追踪 Rvx**
-  权重: 2.0 | 高斯方差 σ_vel = 0.05
-  文本公式：`Rvx = 2.0 * exp( - (vx - vx_cmd)² / σ_vel )`
-
-意义：极小的方差 0.05 意味着只有当实际速度与指令速度几乎严丝合缝时才能得分，逼迫机器狗必须向前奔跑。
-
-##### 第二层：步态防作弊层 (条件正向激励)
-步态奖励强制挂载前向追踪系数 Rvx（将第一层作为乘数），实现速度与步态的硬解耦。
-- **抬腿过障 Rclear**
-  权重: 0.15
-  文本公式：
-  `Rclear = 0.15 * exp( - 求和项[ max(0, 标准抬腿高度 - 足地高差) ]² / σ_h ) * Rvx`
-
-- **对角滞空 Rair**
-  权重: 0.20
-  文本规则：当悬空腿数量 ≥ 2 时生效
-  文本公式：`Rair = 0.20 * 指示函数(悬空腿数≥2) * Rvx`
-
-意义：防止机器狗在原地高抬腿白嫖分数。只有在真实向前移动时，腾空和抬腿才会获得奖励，诱导自然 Trot 步态涌现。
-
-##### 第三层：底盘稳定与平顺层 (软边界惩罚)
-惩罚项系数被精确调校，使其在动作完美时不产生扣分，而在动作畸形时产生极其陡峭的负向压制。
-- **高度死区约束 Pheight**
-  权重: 0.5 | 目标高度 ht=0.32m，死区宽度 d=0.02m
-  文本公式：`Pheight = -0.5 * max( 0, |机身高度 - ht| - d )²`
-
-意义：允许底盘在 0.30m ~ 0.34m 之间无损起伏（完美适配跨越乱石与台阶），但严厉打击“贴地丧尸爬行”。
-
-- **软皮筋姿态约束 Pdof_pos**
-  权重: 0.02
-  文本公式：`Pdof_pos = -0.02 * 求和项( 单关节角度 - 默认姿态角度 )²`
-
-意义：极其关键的量级平衡！0.02 的权重赋予了机器狗在复杂地形屈膝缓冲的自由度，同时在它试图“四肢乱扭”时拉回标准站姿。
-
-其他惩罚：包含摇晃惩罚 Pxy、Z轴弹跳惩罚 Pz、电机扭矩惩罚 Pτ、关节超速惩罚 Pvel 及动作突变惩罚 Pact，全方位模拟物理极限，保护真实硬件。
-
-### 4. 算法与自适应课程细节
-复杂地形的强化学习极易陷入局部最优或梯度饥饿。本系统通过重构课程逻辑与 PPO 底层优化器，实现了从平地到台阶的过渡。
-
-#### A. 概率非对称课程学习
-为了打破“在高级别地形刚出生就摔死，立刻被降级，导致网络永远只能学到平地数据”的死循环，引入了**非对称宽恕机制**。
-
-1. **晋升条件**
-严苛但明确。单回合内，在当前地形存活并向前连续移动超过 3.0m，无条件升 1 级。
-逻辑表达式：`晋升掩码 = (前进距离 > 3.0m) 且 (未跌倒)`
-
-2. **留级与宽恕机制**
-- 灾难性失败定义：地形突变导致机器狗走出不到 0.5m 就暴毙
-- 概率拦截：即使发生灾难性失败，系统也会掷骰子，赋予机器狗 50% 的概率“免于降级”
-逻辑表达式：`降级掩码 = (前进距离 < 0.5m) 且 (已跌倒) 且 (随机值 > 0.5)`
-
-意义：强行在 PPO 的 Batch 经验池中囤积大量高级别地形的试错数据，喂饱 Critic 网络的梯度需求，解决高级地形梯度饥饿问题。
-
-#### B. 自适应 KL 散度调度器 (Adaptive KL Divergence Scheduler)
-为了防止跨越地形难度时发生**灾难性遗忘**，直接动态操纵 PyTorch 优化器的学习率。
-
-- 监控指标：每次 Policy 更新时的估计 KL 散度 D_KL，目标值 KL_target = 0.015
-- 动态调度规则：
-  1. 若 D_KL > 1.5 * KL_target：策略更新过激，学习率衰减
-     规则：`新学习率 = 当前学习率 / 1.5`
-  2. 若 D_KL < KL_target / 1.5：策略过度自信，学习率拉升
-     规则：`新学习率 = 当前学习率 * 1.5`
-
-意义：让网络在探索（大步长）与稳固（小步长）之间自动寻找平衡，确保平地奔跑的肌肉记忆在学习爬楼梯时不会被洗掉。
-
-#### C. 安全边界解耦逻辑 (Safety Boundary Decoupling)
-将物理学意义上的“摔死”与仿真环境边界的“越界”剥离。
-
-1. **致命物理跌倒 (Fallen)**
-触发条件：机身高度 z < -1.0m 跌入深渊、相对地面躯干高度 < 0.15m 砸地、机身重力投影 gz > -0.4 严重侧翻；触发固定 -10.0 极刑惩罚。
-
-2. **通关 (Success)**
-机器狗在 8m × 8m 地图中原点出生，X 轴前移距离超过 3.0m 且未物理跌倒，判定为提前通关，直接结束回合、发放奖励并触发课程升级。
-
-意义：消除高速狂奔个体因“跑出地图边缘”被误判降级的**早停陷阱 (Early-Termination Trap)**，释放机器狗的速度潜力。
-
-## ➡️ Task 3: 复杂动态环境自主导航
-本任务要求机器狗在包含静态与动态障碍物的复杂环境中，融合本体感受器与激光雷达张量数据，通过强化学习与“60-20-20”架构，克服奖励黑客漏洞（如原地踩缝纫机、自杀式冲锋、散步步态），实现高速、安全、平顺的自主避障导航。
-
-### 1. 任务描述
-**初始状态**：机器狗随机出生在环境中，处于默认站立姿态，面向未知的复杂障碍物网络。
-
-**环境配置**：
-- **目标生成**：终点为不产生物理碰撞的虚拟点，具备三阶段动态距离伸缩（如 [2,3]m 新手村到 [25,30]m 极限挑战）。
-- **张量雷达**：仿真内置 90 维射线阵列，实时捕获前向及周身障碍物距离。
-
-**任务目标**：
-输出 12 个关节的目标角度残差，在融合 138 维多模态观测的状态下，自主规划绕障路径，以逼近 1.0 m/s 的目标速度，最终精确到达虚拟终点。
-
-**判定标准**：
-- **完美到达**：机身与目标点二维平面距离 < 0.5m，获巨额奖励并触发课程晋升。
-- **物理极刑**：躯干触地、严重侧翻或发生躯干级别的高速碰撞，触发死亡扣分。
-- **超时截断**：未能在动态分配的寿命内到达终点，强制重置。
-
-**核心挑战**：
-- **自杀式冲锋**：智能体为了快速榨取势能差奖励，放弃平衡向前方盲目飞扑。
-- **次优散步步态**：因惧怕高频动作惩罚和避障风险，智能体将速度锁死在极低的区间缓慢挪动。
-- **幽闭恐惧症**：避障惩罚过于尖锐导致机器狗在狭窄地形中不敢转向或前进。
-
-### 2. 代码架构与运行指南
-本任务的核心代码位于 `task3` 文件夹下。
-
+ 
+也可以直接使用 `scripts/ubuntu/` 下的脚本，这些脚本会自动设置项目路径。
+ 
+### 4. 安装 Python 依赖
+ 
+在 Isaac Lab 对应的 Python 环境中安装必要依赖：
+ 
 ```bash
-# 获取项目代码
-git clone https://github.com/0324Lw/NVIDIA--Isaac-Lab-Unitree_Go2-control.git
-cd NVIDIA--Isaac-Lab-Unitree_Go2-control/task3
+pip install skrl tensorboard tqdm numpy
 ```
-
-| 文件名 | 功能说明 |
-|--------|----------|
-| task3_world.py | 虚拟目标点生成器与雷达射线投射器，内置了强硬的物理起终点动态生成逻辑（新手村距离硬编码）。 |
-| task3_env.py | 138 维多模态强化学习环境。集成了抗 “散步步态” 的动态截断寿命机制，以及完全基于平滑映射算子的 60-20-20 能量地形奖励计算引擎。 |
-| task3_train.py | PPO 核心发射器。强制关闭了连续空间熵增（ent_coef=0.0）防止动作标准差爆炸，并集成 11 项 Dense 奖励组件的实时遥测日志。 |
-| task3_env_test.py | 环境极限压测脚本。用于验证环境边界、动作死区与极刑拦截，确保密集奖励矩阵被严格收束在安全数值域内。 |
-
-运行训练代码：
+ 
+如果你的 Isaac Lab 安装方式已经包含部分依赖，可以按需跳过。
+ 
+---
+ 
+## ⚡ 快速开始
+ 
+### 1. 环境测试
+ 
+建议先从 Task1 开始测试，再进入后续任务。
+ 
 ```bash
-python task3_train.py
+bash scripts/ubuntu/test_task1_env.sh
+bash scripts/ubuntu/test_task2_world.sh
+bash scripts/ubuntu/test_task2_env.sh
+bash scripts/ubuntu/test_task3_world.sh
+bash scripts/ubuntu/test_task3_env.sh
+bash scripts/ubuntu/test_task4_env.sh
 ```
-
-### 3. 强化学习建模
-针对复杂的避障导航，本系统在原有的本体感知基础上，引入雷达传感器数据。
-
-#### A. 状态空间定义
-状态空间扩充至 **138 维**，实现自我感知与外部环境感知的深度融合：
-- **基础本体感知 (48 维)**：包含线速度、角速度、重力投影、关节位置残差及历史动作等。
-- **局部环境测距 (90 维)**：基于周身投射的激光雷达射线数组，实时返回障碍物深度信息，提供避障几何输入。
-
-#### B. 动作空间与底层映射
-维持 **12 维连续残差输出** 与 EMA 动作低通滤波设计，通过底层的 PD 阻抗控制，实现高频平滑的位置追踪。
-
-#### C. 奖励函数设计 
-废弃容易导致局部最优的绝对速度追踪，构建出由**坡度、护栏、阻尼**三层构成的全平滑能量地形，所有 Dense 项均经过 Softplus 或 Tanh 映射收束在 `[-1, 1]` 之间。
-
-##### 第一层：导航主任务层 (60% - Risk-Aware Progress)
-- **纯净势能差 R_Prog**：衡量连续时刻与终点绝对距离的缩减率。
-- **凸函数速度甜头 R_Speed**：提供指数级正向激励，当速度逼近目标值（1.0 m/s）且前方空旷时，给予高额奖励，诱导高速冲锋。
-- **平滑门控朝向 R_Yaw**：`g_clear * exp(-err_yaw^2)`，障碍物较远时鼓励朝向对齐，极近时门控解锁，允许大幅度侧向绕行。
-- **EMA 停滞惩罚 P_Stall**：引入指数移动平均滑窗，容忍短暂避障横移，对长期原地踏步实施严厉软截断惩罚。
-
-##### 第二层：稳定与避障层 (20% - 动态护栏)
-- **速度耦合避障风险 P_Obs**：动态安全距离公式 `d_safe = 0.4 + 0.2 * |v_x|`，速度越快安全半径要求越高；采用 Softmin 仅聚合前向扇区风险，缓解“幽闭恐惧症”。
-- **致命接触事件 P_Hit**：区分正常足端踩踏与躯干碰撞，触发离散极刑惩罚。
-- **双层死区约束 P_Height / P_Ori**：设置安全免责区间，允许正常奔跑起伏，仅对严重越界行为施加 Tanh 软惩罚。
-
-##### 第三层：经济效率层 (20% - 硬件免责阻尼)
-- **免责功率约束 P_Power**：引入标称奔跑功率阈值（`power_deadband = 30.0W`），不惩罚基础运动消耗，仅压制暴力扭矩，保护真实电机。
-- **动作低通一致性 P_Action**：使用 Pseudo-Huber 函数过滤高频突变，使预测轨迹极度平顺。
-- **关节限幅屏障 P_Limit**：精准越界截断惩罚，一旦逼近物理极限立即产生强推离梯度。
-
-### 4. 算法与动态干预机制
-
-#### A. 动态时间截断法 
-直接摧毁“慢悠悠散步”的次优解温床。每回合不分配固定寿命，基于生成距离 `D` 与期望速度动态计算最大步数：
-> 最大步数 = (D / v_target) * 1.5 宽容度 + 5.0 秒容错
-
-迫使机器人维持高移速，否则将在接近终点时因寿命耗尽被强制截断。
-
-#### B. 三段式手自一体课程
-为解决远距离导航早期到达率为 0 带来的梯度消失问题，采用严格阶段式扩容：
-- **新手村阶段**：起终点距离强制锁定在 `[2, 3] m`，即使“自杀式冲锋”也可完成任务，快速建立高额通关奖励的因果关系。
-- **进阶阶段**：随到达率达标，逐步将距离提升至 `[10, 20] m` 和 `[25, 30] m`，训练长时序、复杂环境下的自主寻路与绕障能力。
-
-## ➡️ Task 4: Sim2Real 部署与极限抗扰自适应控制
-本任务是跨越仿真与现实鸿沟的终极挑战。要求机器狗在面临极端物理扰动（如负载突变、摩擦力剧变、外部飞踢）及严苛传感器噪声的残酷条件下，通过 **RMA（Rapid Motor Adaptation）非对称师生架构** 与全面的域随机化，提炼出鲁棒的自适应步态，确保算法能够顺利下发至边缘硬件上进行真机部署。
-
-### 1. 任务描述
-**初始状态**：机器狗随机出生在环境中，可能随时被附加未知的偏心负载，且处于摩擦系数完全未知的地表。
-
-**环境配置**：
-- **全方位域随机化**：涵盖机身质量、重心位置、电机阻尼、地面摩擦系数及弹性恢复系数的高频动态突变。
-- **恶劣感知噪声**：仿真注入真实硬件级别的通信延迟，并在 IMU 与电机编码器数据中叠加高斯白噪声。
-- **暴力外部扰动**：随机触发高频、大动量的三维空间“飞踢”脉冲力与持续拖拽力。
-
-**任务目标**：
-输出 12 个关节的目标角度残差。在不依赖特权物理真值的前提下，仅依靠本体历史状态序列，自适应推断环境阻力变化并维持高速稳定巡航，打通**“强化学习训练 + 硬件真机部署”**全链路闭环。
-
-**判定标准**：
-- **完美抗扰**：在连续极端的物理破坏与全向指令切换下，机身不倒且平顺追踪目标轨迹。
-- **物理极刑**：重心高度低于安全阈值，或发生翻滚（Z 轴重力投影反转），即刻触发严厉死亡扣分并重置。
-
-**核心挑战**：
-- **雕像陷阱**：智能体为规避运动发力带来的惩罚风险，选择在原地“装死”白嫖姿态分数。
-- **高频抽搐漏洞**：利用观测延迟和动作抖动，在奖励结算的间隙疯狂震荡以骗取系统判定分。
-- **Sim-to-Real 鸿沟**：仿真中拟合出的完美步态，在真机上极易因微小的电机效能衰减而瞬间崩溃。
-
-
-### 2. 代码架构与运行指南
-本任务的核心代码位于 `task4` 文件夹下。
-
+ 
+如果显存不足，可以打开对应脚本，降低 `--num-envs`。
+ 
+### 2. Smoke 训练
+ 
+Smoke training 用于确认训练管线可以启动、日志可以写入、checkpoint 可以保存，不用于评估最终效果。
+ 
 ```bash
-# 获取项目代码
-git clone https://github.com/0324Lw/NVIDIA--Isaac-Lab-Unitree_Go2-control.git
-cd NVIDIA--Isaac-Lab-Unitree_Go2-control/task4
+bash scripts/ubuntu/train_task1_skrl_smoke.sh
+bash scripts/ubuntu/train_task2_skrl_smoke.sh
+bash scripts/ubuntu/train_task3_skrl_smoke.sh
+bash scripts/ubuntu/train_task4_skrl_smoke.sh
 ```
-
-| 文件名 | 功能说明 |
-|--------|----------|
-| task4_env.py | Sim2Real 极限抗扰强化学习环境。内置全方位物理引擎随机化逻辑，以及用于构建特权信息（Privileged Info）的上帝视角张量提取器。 |
-| task4_env_test.py | 环境极限压测脚本。在无头模式下通过纯随机策略注入高频噪声与外部脉冲，验证环境重置边界、极刑拦截机制与数值稳定性。 |
-| task4_train.py | RMA 师生架构的主训练循环。包含双阶段训练管道与 Adaptive KL 自适应学习率干预调度器。 |
-
-运行训练代码：
+ 
+### 3. 模型测试
+ 
+训练完成后，可以使用 eval 脚本加载 checkpoint 做推理测试。
+ 
 ```bash
-python task4_train.py
+bash scripts/ubuntu/eval_task1_skrl.sh logs/task1/<run_name>/final_checkpoint/go2_task1_model.pt
+bash scripts/ubuntu/eval_task2_skrl.sh logs/task2/<run_name>/final_checkpoint/go2_task2_model.pt
+bash scripts/ubuntu/eval_task3_skrl.sh logs/task3/<run_name>/final_checkpoint/go2_task3_model.pt 0.12
+bash scripts/ubuntu/eval_task4_skrl.sh logs/task4/<run_name>/final_checkpoint/go2_task4_teacher_model.pt 0.30
 ```
-
-### 3. 强化学习建模
-为了彻底跨越仿真与现实的物理鸿沟，本系统不再采用单一的强化学习环境，而是重构了基于 **RMA (Rapid Motor Adaptation)** 的非对称观测空间。
-
-#### A. 状态空间定义 (Teacher-Student 非对称空间)
-系统将状态空间扩展至 **259 维**，并严格划分为**“学生（现实）”**与**“教师（上帝）”**两个视角，为双阶段蒸馏训练奠定基础：
-
-##### 时序历史特征 $H_t$ (240 维，Student 专属)
-现实中传感器存在极大的脏数据与延迟。网络将单帧 48 维感知数据进行了 **5 帧时序堆叠 (Frame Stacking)**，相当于获取了过去 0.1 秒的动态快照。
-单帧感知注入了严苛的高斯白噪声，包含：
-- 线速度、加入噪声的角速度与重力投影 (隐式倾角)
-- 加入噪声的 12 维关节位置残差与关节角速度
-- 三维目标速度指令 $v^{cmd}$ 以及上一帧输出动作 $a_{t-1}$
-
-##### 特权物理真值 $E_t$ (19 维，Teacher 专属)
-仅在第一阶段仿真训练中开放给 Teacher 网络，包含无法在现实中直接测量的环境真值：
-- 实际地面摩擦系数 $\mu$ (1维)
-- 附加的偏心负载重量 (1维) 与三维重心偏移量 (3维)
-- 当前遭受的 X/Y 轴随机飞踢脉冲力 (2维)
-- 12 个电机的实时动力衰减系数 (12维)
-
-#### B. 动作空间与底层映射 (Action Space & EMA Filter)
-维持 **12 维连续残差输出**，但在输出端施加了更严格的低通滤波保护硬件。
-- **动作平滑 (EMA)**：引入平滑系数 $\alpha = 0.5$，公式：
-  $a_{current} = 0.5 \cdot a_{net} + 0.5 \cdot a_{last}$
-  过滤掉高频阶跃信号。
-- **降维缩放**：网络输出 $[-1.0, 1.0]$ 乘以极其克制的物理缩放系数 (Action Scale = 0.25 rad) 后叠加到默认站立姿态。
-
-#### C. 奖励函数设计 (乘法门控与线性漏斗)
-完全废弃了容易导致“梯度消失”和局部最优的高斯奖励，转而构建了由**线性追踪、乘法门控、效率惩罚**三层构成的极其严苛的能量地形。
-
-##### 第一层：主任务追踪层 (The Linear Funnel)
-利用线性惩罚构建绝对均匀的梯度，解决机器狗在误差较大时失去动力的问题。
-- **直线巡航追踪 R_Vel_XY**
-  - 公式：`clamp(1.0 - (v_xy_err / 0.5), min=0.0)`
-  - 设计哲学：将容忍度分母极度收缩至 0.5。当指令为 0.5m/s 时，机器狗只要静止不动，得分直接归零。只有迈开腿产生哪怕 0.1m/s 的微小速度，也能获得 0.2 分的确切收益。此“完美线性梯度”彻底断绝了原地踏步的退路。
-- **偏航约束 R_Vel_Wz**：抑制侧滑与自转。
-
-##### 第二层：乘法门控姿态层 (Multiplicative Gating)
-针对四足强化学习中 **雕像陷阱 (The Statue Trap)**（智能体为了规避移动带来的姿态摇晃和运动惩罚，选择在原地站成一座雕像以白嫖姿态分）提出的终极解法。
-- **水平姿态基础分 R_Ori_Raw**：计算重力投影的平方和，鼓励底盘水平。
-- **高度保持基础分 R_Height_Raw**：鼓励维持 0.30m 的目标机身高度。
-
-##### 第三层：效率惩罚与实机保护层 (Efficiency & Hardware Protection)
-严厉的软约束惩罚，迫使步态变得平顺优雅，确保可无损下放真机。
-- **动作抖动惩罚 P_Action**：惩罚相邻帧动作的高频剧变，极大抑制实机部署时的机身震颤。
-- **足端打滑惩罚 P_Slip**：仅在足端受力（触地）时，惩罚足端的水平位移平方，逼迫机器狗在冰面环境中学会干脆利落的“抬腿-压紧”步态。
-- **线性冲击惩罚 P_Impact**：抛弃了容易引发梯度爆炸的平方惩罚，对超过 200N 安全阈值的足端冲击力施加线性扣分，抑制落地过猛损坏机械结构。
-- **能耗限制 P_Torque** 及 **软关节极限 P_JointLim**。
-
-##### 第四层：极刑边界 (Terminal Conditions)
-当机身高度低于 0.22m（严重托底）或发生超过 66 度的倾斜侧翻时，立即终止回合，并施加脱离截断覆盖的 **离散死亡惩罚**。
-
-### 4. 算法与课程学习细节 (Algorithms & Curriculum)
-在面临质量突变、摩擦力剧变与暴力飞踢时，即使拥有最优的奖励函数，智能体也很难一次性收敛。本任务引入了**降维课程**与 **RMA 蒸馏管道**。
-
-#### A. 降维打击与单一课程 (Simplified Command Curriculum)
-为了加速收敛并避免策略在多方向探索中迷失，系统在早期的 Teacher 训练阶段强制启动了极简课程：
-- **锁死指令范围**：将 $v_x$ 死死钉在 0.5 m/s，并将 $v_y$ 和 $\omega_z$ 锁死为 0.0。
-- **意义**：剥离侧移和转向带来的复杂平衡要求，让机器狗在一维直线追踪中，专心提炼出最稳定、最高效的 Trot（对角小跑）抗扰步态肌肉记忆。当直线抗扰成熟后，再逐步开放全向随机指令。
-
-#### B. 饱和式域随机化 (Saturated Domain Randomization)
-将物理引擎变成对智能体的“饱和式攻击”测试场：
-- 每回合随机赋予 0~5kg 负载，且重心位置发生三维偏移。
-- 随机降低 1~2 个电机的输出扭矩至 70%，模拟真机电机的发热限流与机械磨损。
-- 运行时每隔 3~8 秒，施加一记 100~300N 的随机 3D 脉冲飞踢。
-
-#### C. RMA 双阶段蒸馏网络 (Teacher-Student Distillation)
-##### Phase 1 (Teacher 炼丹)
-基于 `task4_train.py`。使用 PPO 算法，输入完整的 **259 维开卷数据**（历史序列 + 特权物理真值）。
-由于拿到了“答案”，Teacher 能在数千万步内极速学会如何在低摩擦力下降低重心，并在遭遇飞踢时调整落脚点。
-
-##### Phase 2 (Student 模仿)
-真机部署时特权信息 $E_t$ 不可见。
-利用 TCN 或 1D-CNN 构建自适应模块 (Adaptation Module)，输入过去 50 帧的带噪历史数据 $H_t$。
-通过无监督的潜在表示学习，强迫 Student 网络从历史轨迹的微小抖动中“嗅出”当前的环境阻力，从而输出与 Teacher 一致的保命动作。
+ 
+---
+ 
+## 🧩 任务设计总览
+ 
+| Task | 目标 | 环境特点 | 训练重点 | 主要脚本 |
+|---|---|---|---|---|
+| Task1 | 平地速度跟踪 | 平坦地面、随机速度指令 | 基础站立、行走、小跑、速度跟踪 | `task1_env.py`, `task1_train.py`, `task1_model_test.py` |
+| Task2 | 多地形运动 | rough flat / slopes / stepping stones / stairs | 本体感知下的多地形 locomotion | `task2_world.py`, `task2_env.py`, `task2_train.py` |
+| Task3 | 自主导航与避障 | 虚拟目标、静态/动态障碍、90 维 lidar | 到达目标、避障、保持运动稳定 | `task3_world.py`, `task3_env.py`, `task3_train.py` |
+| Task4 | Sim2Real / RMA 抗扰训练 | 摩擦、负载、重心偏移、电机衰减、外力扰动 | 鲁棒运动和 RMA Teacher 训练 | `task4_env.py`, `task4_train.py`, `task4_model_test.py` |
+ 
+---
+ 
+## ➡️ Task 1：平地速度跟踪
+ 
+Task1 是最基础的 locomotion 任务，用于训练 Unitree Go2 在平地上稳定站立、前进和跟踪速度指令。
+ 
+### 任务目标
+ 
+- 机器狗在平坦地面上保持稳定姿态。
+- 跟踪随机给定的线速度和角速度指令。
+- 学习基础步态，为 Task2 / Task3 / Task4 提供可 warm-start 的 checkpoint。
+ 
+### 环境设计
+ 
+- 使用 Isaac Lab 中的 Unitree Go2 资产。
+- 控制频率采用低频 RL 策略 + 高频 PD 控制。
+- 动作输出为 12 个关节的目标位置残差。
+- 观测包含机身速度、角速度、重力投影、关节状态、历史动作、足端接触等信息。
+- 训练代码统一采用 `skrl` PPO。
+ 
+### 常用命令
+ 
+```bash
+bash scripts/ubuntu/test_task1_env.sh
+bash scripts/ubuntu/train_task1_skrl_smoke.sh
+bash scripts/ubuntu/train_task1_skrl_laptop.sh
+bash scripts/ubuntu/eval_task1_skrl.sh logs/task1/<run_name>/final_checkpoint/go2_task1_model.pt
+```
+ 
+### 训练时重点观察
+ 
+- `Actual_Vx` 是否逐步接近 `Cmd_Vx`
+- `Base_Height` 是否稳定在目标高度附近
+- `Fall_Rate` 是否接近 0
+- `Contact_Count` 是否处在合理范围
+- `P_Foot_Slip` 是否过大
+- PPO 的 `approx_kl`、`clip_fraction` 是否稳定
+ 
+---
+ 
+## ➡️ Task 2：多地形运动
+ 
+Task2 在 Task1 的基础上加入多地形训练，用于提升 Go2 在不同地形上的通过能力。
+ 
+### 任务目标
+ 
+- 在多种地形上保持稳定运动。
+- 训练机器狗通过 rough flat、slopes、stepping stones、stairs 等地形。
+- 使用课程学习逐步提升地形难度。
+- 支持从 Task1 checkpoint warm-start。
+ 
+### 环境设计
+ 
+Task2 将地形和环境拆开：
+ 
+- `task2_world.py`：负责地形类型、地形等级、课程逻辑、地形高度采样和 privileged terrain features。
+- `task2_env.py`：负责真实 Go2 物理控制、观测、奖励、终止条件和与 IsaacLab 的交互。
+- `task2_world_test.py`：不启动完整训练，用于检查地形世界逻辑。
+- `task2_env_test.py`：用于检查 IsaacLab 环境和观测、奖励、reset、contact 等逻辑。
+ 
+### 常用命令
+ 
+```bash
+bash scripts/ubuntu/test_task2_world.sh
+bash scripts/ubuntu/test_task2_env.sh
+bash scripts/ubuntu/train_task2_skrl_smoke.sh
+bash scripts/ubuntu/train_task2_skrl_laptop.sh logs/task1/<run_name>/final_checkpoint/go2_task1_model.pt
+bash scripts/ubuntu/eval_task2_skrl.sh logs/task2/<run_name>/final_checkpoint/go2_task2_model.pt
+```
+ 
+### 训练时重点观察
+ 
+- `Actual_Vx` 与 `Cmd_Vx` 的差距
+- `Fall_Rate`
+- `Mean_Terrain_Level`
+- `Success_Total` / `Upgrade_Total`
+- `Contact_Count`
+- `P_Foot_Slip`
+- 不同地形类型上的稳定性
+ 
+---
+ 
+## ➡️ Task 3：自主导航与避障
+ 
+Task3 在真实 Go2 物理控制的基础上加入解析导航世界。机器狗需要根据目标点、lidar 和风险特征，在存在静态/动态障碍物的环境中到达目标。
+ 
+### 任务目标
+ 
+- 根据虚拟目标点进行自主导航。
+- 使用 90 维 lidar 与 risk features 感知障碍物。
+- 避免静态和动态障碍物碰撞。
+- 在保持身体稳定的同时尽量向目标前进。
+ 
+### 环境设计
+ 
+Task3 使用“真实机器人物理 + 解析导航世界”的结构：
+ 
+- `task3_world.py` 是纯 torch 解析世界，不依赖 IsaacLab。
+- 静态障碍、动态障碍、lidar、碰撞、目标点、risk features 都由 GPU tensor 计算。
+- `task3_env.py` 接入 IsaacLab 的 Go2 物理环境，动作仍然控制真实 Go2 关节。
+- 障碍物不生成大量真实 prim，这样可以保持较高并发和较低仿真开销。
+ 
+### 观测结构
+ 
+- 单帧 actor observation：257 维
+- 5 帧堆叠后 actor input：1285 维
+- world privileged features：68 维
+- critic input：1353 维
+ 
+### 常用命令
+ 
+```bash
+bash scripts/ubuntu/test_task3_world.sh
+bash scripts/ubuntu/test_task3_env.sh
+bash scripts/ubuntu/train_task3_skrl_smoke.sh
+bash scripts/ubuntu/train_task3_skrl_laptop.sh logs/task2/<run_name>/final_checkpoint/go2_task2_model.pt
+bash scripts/ubuntu/eval_task3_skrl.sh logs/task3/<run_name>/final_checkpoint/go2_task3_model.pt 0.12
+```
+ 
+### 训练时重点观察
+ 
+- `Progress`
+- `Distance_To_Goal`
+- `Success_Rate`
+- `Collision_Rate`
+- `Fall_Rate`
+- `Collision_Risk`
+- `Front_Clearance_Norm`
+- `Actual_Along_Goal`
+ 
+Task3 训练难度比 Task1 / Task2 更高，建议优先使用 Task1 或 Task2 checkpoint warm-start。
+ 
+---
+ 
+## ➡️ Task 4：Sim2Real / RMA 抗扰训练
+ 
+Task4 面向 Sim2Real 和鲁棒运动控制。当前实现的是 RMA Teacher 阶段，用于训练带 privileged information 的 teacher policy。后续可以继续扩展 Student / adaptation module。
+ 
+### 任务目标
+ 
+- 在摩擦变化、负载变化、重心偏移、电机输出衰减和外部扰动下保持运动稳定。
+- 训练一个使用 privileged information 的 Teacher policy。
+- 为后续 Student 模仿学习、RMA adaptation module 和真机部署做准备。
+ 
+### 环境设计
+ 
+Task4 当前采用 teacher 训练结构：
+ 
+```text
+teacher_obs = actor_history + privileged_obs
+teacher_obs = 240 + 25 = 265
+```
+ 
+其中：
+ 
+- `actor_history`：5 帧历史观测，每帧 48 维，总共 240 维。
+- `privileged_obs`：25 维，包括摩擦、负载、重心偏移、电机强度、外力扰动等信息。
+- Teacher policy 可以使用 privileged information。
+- Student policy 和 adaptation module 属于后续扩展方向。
+ 
+### 常用命令
+ 
+```bash
+bash scripts/ubuntu/test_task4_env.sh
+bash scripts/ubuntu/train_task4_skrl_smoke.sh
+bash scripts/ubuntu/train_task4_skrl_laptop.sh logs/task2/<run_name>/final_checkpoint/go2_task2_model.pt
+bash scripts/ubuntu/eval_task4_skrl.sh logs/task4/<run_name>/final_checkpoint/go2_task4_teacher_model.pt 0.30
+```
+ 
+### 训练时重点观察
+ 
+- `Cmd_Vx` / `Actual_Vx`
+- `Tracking_Error`
+- `Fall_Rate`
+- `Push_Active_Rate`
+- `Motor_Strength_Min`
+- `Payload_Mass`
+- `Friction`
+- `Base_Height`
+ 
+---
+ 
+## 📊 日志与模型保存
+ 
+训练日志默认保存在：
+ 
+```text
+logs/task1/
+logs/task2/
+logs/task3/
+logs/task4/
+```
+ 
+每个训练 run 通常包含：
+ 
+```text
+checkpoint_<env_steps>/
+final_checkpoint/
+train_metadata.pt
+```
+ 
+可以使用 TensorBoard 查看训练过程：
+ 
+```bash
+tensorboard --logdir logs
+```
+ 
+训练过程中会记录以下类型的信息：
+ 
+- `reward_components`：各奖励项。
+- `events`：成功、摔倒、碰撞、超时等事件。
+- `telemetry`：速度、高度、距离、课程阶段等训练指标。
+- `debug`：观测维度、reward 范围、异常值检查等。
+- `ppo`：PPO 更新信息，例如 KL、loss、学习率等。
+ 
+---
+ 
+## 💻 Ubuntu / Windows 使用说明
+ 
+### Ubuntu
+ 
+Ubuntu 用于：
+ 
+- 代码开发
+- 环境测试
+- world 测试
+- smoke training
+- 训练验证
+ 
+常用脚本在：
+ 
+```text
+scripts/ubuntu/
+```
+ 
+### Windows 
+ 
+Windows 脚本在：
+ 
+```text
+scripts/windows/
+```
+ 
+建议先运行 readiness check：
+ 
+```powershell
+.\scripts\windows\check_task1_windows_ready.ps1
+.\scripts\windows\check_task2_windows_ready.ps1
+.\scripts\windows\check_task3_windows_ready.ps1
+.\scripts\windows\check_task4_windows_ready.ps1
+```
+ 
+Windows 训练脚本通常带有审批环境变量，避免误启动长时间训练。例如：
+ 
+```powershell
+$env:GO2_TASK3_WINDOWS_SMOKE_APPROVED = "1"
+.\scripts\windows\train_task3_skrl_smoke_3090.ps1
+```
+ 
+正式训练前建议先运行 smoke 版本，确认路径、IsaacLab Python、显卡和日志输出都正常。
+ 
+---
+ 
+## 🧭 推荐训练顺序
+ 
+推荐顺序：
+ 
+1. 先训练 Task1，获得基础平地 locomotion checkpoint。
+2. Task2 从 Task1 warm-start，训练多地形运动。
+3. Task3 从 Task1 或 Task2 warm-start，训练导航与避障。
+4. Task4 从 Task2 warm-start，训练 Sim2Real / RMA Teacher。
+ 
+也可以每个任务从零开始训练，但训练时间会更长，早期调参也会更困难。
+ 
+---
+ 
+## 📌 当前状态与限制
+ 
+- 本项目主要用于学习、复现实验和开源交流。
+- 当前代码完成了四个任务的 IsaacLab 环境、测试、`skrl` PPO 训练和模型测试脚本。
+- Task4 当前实现的是 RMA Teacher 训练阶段，Student 蒸馏和 adaptation module 还需要后续继续扩展。
+- 不同 Isaac Lab / Isaac Sim 版本之间可能存在 API 差异，需要根据本地环境做少量适配。
+- 训练效果会受到 GPU、并发数、随机种子、训练步数和超参数影响。
+- Windows 脚本中的默认路径可能需要根据自己的机器修改。
+- 本项目不是官方 Unitree 或 NVIDIA 项目，只是个人学习和开源整理。
+ 
+---
+ 
+## ❓ 常见问题
+ 
+### 1. `ModuleNotFoundError: No module named torch`
+ 
+通常是没有进入 Isaac Lab 对应的 Python / conda 环境。请先确认：
+ 
+```bash
+which python
+python -c "import torch; print(torch.__version__)"
+```
+ 
+### 2. IsaacLab / `pxr` 导入报错
+ 
+涉及 IsaacLab、USD、`pxr` 的文件需要在 Isaac Sim / Isaac Lab 环境中运行。测试脚本中如果需要 AppLauncher，应保证先启动 AppLauncher，再导入依赖 IsaacLab 的环境文件。
+ 
+### 3. 训练启动后显存不足怎么办?
+ 
+先降低并发数：
+ 
+```bash
+--num-envs 16
+--num-envs 32
+--num-envs 64
+--num-envs 128
+```
+ 
+确认能跑通后再逐步增加。
+ 
+### 4. Smoke training
+ 
+正常。Smoke training 只用于检查训练流程是否能启动和保存模型，不代表最终策略效果。
+ 
+### 5. Task3 / Task4 为什么推荐 warm-start?
+ 
+Task3 加入导航和障碍物，Task4 加入扰动和域随机化，直接从零训练会更难。使用 Task1 / Task2 checkpoint 可以先继承基础步态，再学习更复杂的任务。
+ 
+### 6. Windows 路径需要怎么改?
+ 
+打开 `scripts/windows/` 下的 `.ps1` 文件，修改：
+ 
+```powershell
+$ProjectRoot
+$IsaacLabRoot
+$LogRoot
+```
+ 
+确保它们对应你本机的项目路径、IsaacLab 路径和日志路径。
+ 
+### 7. 为什么要先跑环境测试?
+ 
+四足机器人训练中的很多问题不是 PPO 本身造成的，而是 reset、观测维度、坐标系、接触传感器、奖励项或终止条件有问题。先跑测试可以减少后续训练调参的时间。
+ 
+---
+ 
+## 📄 License
+ 
+This project is released under the MIT License.
+ 
+See the `LICENSE` file for details.
+ 
+---
+ 
+## 🙏 Acknowledgements
+ 
+感谢以下开源项目和工具：
+ 
+- NVIDIA Isaac Sim / Isaac Lab
+- Unitree Go2 robot asset in Isaac Lab
+- PyTorch
+- skrl reinforcement learning library
+- TensorBoard
+- tqdm
+- 机器人强化学习和 Isaac Lab 开源社区
+ 
+如果这个项目对你有帮助，欢迎参考、修改和继续完善。也欢迎指出代码或文档中的问题。
+联系邮箱：2559906288@qq.com 小红书账号：574661219
