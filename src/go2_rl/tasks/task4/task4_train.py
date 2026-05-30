@@ -45,6 +45,7 @@ parser.add_argument("--save-freq-env-steps", type=int, default=20_000_000)
 parser.add_argument("--num-envs", type=int, default=1024)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--start-k", type=float, default=0.0)
+parser.add_argument("--force-stage", type=int, default=-1, help="Force Task4 curriculum stage for diagnostic/fixed-stage training; -1 disables")
 
 # Resume / warm-start
 parser.add_argument("--resume", type=str, default="", help="Optional Task4 skrl checkpoint file or checkpoint directory")
@@ -280,6 +281,8 @@ def task4_progress_postfix(env_steps: int, start_time: float, reward_mean: float
         "cmd": f"{flat.get('telemetry/Cmd_Vx', 0.0):+.2f}",
         "vx": f"{flat.get('telemetry/Actual_Vx', 0.0):+.2f}",
         "err": f"{flat.get('telemetry/Tracking_Error', 0.0):.2f}",
+        "ratio": f"{flat.get('telemetry/Speed_Ratio', 0.0):.2f}",
+        "trk": f"{flat.get('events/Tracking_Success_Rate', 0.0):.3f}",
         "fall": f"{flat.get('events/Fall_Rate', 0.0):.3f}",
         "push": f"{flat.get('telemetry/Push_Active_Rate', 0.0):.2f}",
         "h": f"{flat.get('telemetry/Base_Height', 0.0):.2f}",
@@ -486,7 +489,9 @@ def build_old_to_task4_column_mapping(old_single: int, new_single: int = 48, n_s
         privileged_obs 25
         total 265
 
-    The privileged columns are intentionally not copied.
+    Most privileged columns are intentionally not copied.
+    Exception: for teacher warm-start, old base linear velocity can be copied
+    into Task4 privileged base_lin_vel columns [240:243].
     """
 
     pairs = []
@@ -539,9 +544,20 @@ def build_old_to_task4_column_mapping(old_single: int, new_single: int = 48, n_s
             common = min(old_single, new_single)
             add_range(0, 0, common, f)
 
-    # Do not copy into privileged part [240:265].
     actor_history_dim = new_single * n_stack
-    pairs = [(o, n) for (o, n) in pairs if n < actor_history_dim]
+
+    # Teacher-only warm-start bridge:
+    # Task1/Task2 used base_lin_vel as actor columns 0:3 in each frame, while
+    # Task4 teacher exposes current base_lin_vel in privileged columns [240:243].
+    # Copy the newest old frame velocity to those privileged columns to preserve
+    # the speed-feedback prior. Other privileged columns remain newly initialized.
+    if old_single in (87, 257):
+        latest_old_base = (n_stack - 1) * old_single
+        for i in range(3):
+            pairs.append((latest_old_base + i, actor_history_dim + i))
+
+    # Keep actor-history columns plus the explicit base_lin_vel privileged bridge.
+    pairs = [(o, n) for (o, n) in pairs if n < actor_history_dim or actor_history_dim <= n < actor_history_dim + 3]
 
     return pairs
 
@@ -701,7 +717,7 @@ def load_actor_warm_start(models: Dict[str, Any], path: str, device: str, label:
         print(f"   skipped tensors       = {report['skipped']}")
         print(f"   first_layer_mode      = {report['smart_mode']}")
         print(f"   policy log_std set    = {log_std_ok}, value={pretrained_log_std}")
-        print("   Task4 privileged 输入列 [240:265] 不从旧任务继承，保持新任务初始化。")
+        print("   Task4 privileged 仅 base_lin_vel 输入列 [240:243] 可从旧任务速度反馈继承，其余 privileged 列保持新任务初始化。")
         print("   Task4 critic 保持随机初始化。")
         return int(report["copied"]) > 0
 
@@ -764,6 +780,7 @@ def main():
     env_cfg.device = str(args_cli.device)
     env_cfg.teacher_mode = True
     env_cfg.print_debug_info = False
+    env_cfg.force_stage = int(args_cli.force_stage)
 
     base_env = Go2Task4Env(env_cfg)
 
@@ -876,6 +893,8 @@ def main():
     print(f"  - pretrained_task1     : {args_cli.pretrained_task1 if args_cli.pretrained_task1 else '<none>'}")
     print(f"  - pretrained_task3     : {args_cli.pretrained_task3 if args_cli.pretrained_task3 else '<none>'}")
     print(f"  - resume               : {args_cli.resume if args_cli.resume else '<none>'}")
+    print(f"  - start_k              : {args_cli.start_k}")
+    print(f"  - force_stage          : {args_cli.force_stage}")
     print(f"  - tensorboard          : tensorboard --logdir={args_cli.log_root}")
 
     memory = RandomMemory(memory_size=int(cfg["rollouts"]), num_envs=num_envs, device=env.device)

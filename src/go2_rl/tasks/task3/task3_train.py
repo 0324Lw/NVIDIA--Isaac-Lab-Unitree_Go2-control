@@ -45,6 +45,12 @@ parser.add_argument("--save-freq-env-steps", type=int, default=20_000_000)
 parser.add_argument("--num-envs", type=int, default=1024)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--start-k", type=float, default=0.0)
+parser.add_argument(
+    "--force-stage",
+    type=int,
+    default=-1,
+    help="Force Task3 curriculum active stage after env creation/resume. Use only for curriculum debugging or staged continuation.",
+)
 
 # Resume / warm-start
 parser.add_argument("--resume", type=str, default="", help="Optional Task3 skrl checkpoint file or checkpoint directory")
@@ -120,14 +126,17 @@ from go2_rl.tasks.task3.task3_env import Go2Task3Env
 class Go2Task3AsymFrameStackWrapper(gym.Env):
     """Task3 asymmetric frame-stack wrapper for skrl.
 
+    Task3-Navigation-V3 uses navigation-specific observations, so dimensions
+    are read from Task3Config instead of being hard-coded.
+
     Actor:
-        actor_obs_stack = 257 * 5 = 1285
+        actor_obs_stack = single_actor_obs_dim * n_stack
 
     Critic:
-        critic_obs = actor_obs_stack 1285 + world_privileged 68 = 1353
+        critic_obs = actor_obs_stack + world_privileged_dim
 
     Raw env.compute_privileged_obs():
-        single_actor_obs 257 + world_priv 68 = 325
+        single_actor_obs + world_privileged_dim
 
     The wrapper returns a dict compatible with skrl IsaacLab wrapper:
         {"policy": actor_stack, "critic": critic_obs}
@@ -152,10 +161,26 @@ class Go2Task3AsymFrameStackWrapper(gym.Env):
         self.single_priv_dim = int(env.cfg.num_privileged_obs)
         self.world_priv_dim = self.single_priv_dim - self.single_obs_dim
 
-        if self.single_obs_dim != 257:
-            raise RuntimeError(f"Task3 actor single obs dim should be 257, got {self.single_obs_dim}")
-        if self.world_priv_dim != 68:
-            raise RuntimeError(f"Task3 world privileged dim should be 68, got {self.world_priv_dim}")
+        expected_single_obs_dim = int(getattr(env.cfg, "num_observations", self.single_obs_dim))
+        expected_single_priv_dim = int(getattr(env.cfg, "num_privileged_obs", self.single_priv_dim))
+
+        if self.single_obs_dim != expected_single_obs_dim:
+            raise RuntimeError(
+                f"Task3 actor single obs dim mismatch: expected {expected_single_obs_dim}, "
+                f"got {self.single_obs_dim}"
+            )
+
+        if self.single_priv_dim != expected_single_priv_dim:
+            raise RuntimeError(
+                f"Task3 privileged single obs dim mismatch: expected {expected_single_priv_dim}, "
+                f"got {self.single_priv_dim}"
+            )
+
+        if self.world_priv_dim <= 0:
+            raise RuntimeError(
+                f"Task3 world privileged dim must be positive, got {self.world_priv_dim}. "
+                f"single_priv_dim={self.single_priv_dim}, single_obs_dim={self.single_obs_dim}"
+            )
 
         self.stacked_obs_dim = self.single_obs_dim * self.n_stack
         self.critic_obs_dim = self.stacked_obs_dim + self.world_priv_dim
@@ -300,6 +325,111 @@ def make_log_dir() -> str:
     return log_dir
 
 
+def _get_curriculum_total_steps(base_env: Go2Task3Env) -> int:
+    """Read Task3 curriculum total steps from config with backward-compatible fallbacks."""
+
+    return int(
+        getattr(
+            base_env.cfg,
+            "curriculum_total_steps",
+            getattr(base_env.cfg.world_cfg, "curriculum_total_steps", 1),
+        )
+    )
+
+
+def _get_stage_cap_from_env(base_env: Go2Task3Env) -> int:
+    """Read current global curriculum cap from the env/world implementation."""
+
+    try:
+        if hasattr(base_env, "_global_stage_cap"):
+            return int(base_env._global_stage_cap())
+    except Exception:
+        pass
+
+    try:
+        if hasattr(base_env, "world") and hasattr(base_env.world, "stage_from_global_steps"):
+            return int(base_env.world.stage_from_global_steps(int(base_env.global_steps)))
+    except Exception:
+        pass
+
+    return int(getattr(base_env, "curriculum_active_stage", 0))
+
+
+def _apply_curriculum_start_override(
+    base_env: Go2Task3Env,
+    start_k: float,
+    force_stage: int,
+    reason: str,
+    prefer_max: bool = True,
+) -> None:
+    """Apply --start-k / --force-stage to the real Task3 env.
+
+    This must run after resume metadata restoration as well, because resume can
+    overwrite base_env.global_steps. The wrapper and progress bar counters are
+    not enough; curriculum sampling reads the underlying base_env fields.
+    """
+
+    changed = False
+
+    if float(start_k) > 0.0:
+        curriculum_total_steps = max(_get_curriculum_total_steps(base_env), 1)
+        forced_steps = int(float(start_k) * curriculum_total_steps)
+        old_steps = int(getattr(base_env, "global_steps", 0))
+        new_steps = max(old_steps, forced_steps) if prefer_max else forced_steps
+        base_env.global_steps = int(new_steps)
+        changed = changed or (new_steps != old_steps)
+
+        print(
+            f"[INFO] curriculum override ({reason}): "
+            f"start_k={float(start_k):.4f}, forced_steps={forced_steps:,}, "
+            f"old_global_steps={old_steps:,}, new_global_steps={int(base_env.global_steps):,}, "
+            f"curriculum_total_steps={curriculum_total_steps:,}"
+        )
+
+    stage_cap = _get_stage_cap_from_env(base_env)
+
+    if int(force_stage) >= 0:
+        requested_stage = int(force_stage)
+        max_stage = int(getattr(getattr(base_env, "world", None), "stage_count", requested_stage + 1)) - 1
+        if max_stage >= 0:
+            requested_stage = max(0, min(requested_stage, max_stage))
+
+        old_active = int(getattr(base_env, "curriculum_active_stage", 0))
+        if hasattr(base_env, "curriculum_active_stage"):
+            base_env.curriculum_active_stage = requested_stage
+            changed = changed or (requested_stage != old_active)
+
+        if hasattr(base_env, "curriculum_stage_start_steps"):
+            base_env.curriculum_stage_start_steps = int(getattr(base_env, "global_steps", 0))
+        if hasattr(base_env, "curriculum_last_check_steps"):
+            base_env.curriculum_last_check_steps = int(getattr(base_env, "global_steps", 0))
+
+        print(
+            f"[INFO] curriculum override ({reason}): "
+            f"force_stage={requested_stage}, old_active_stage={old_active}, "
+            f"global_cap_now={stage_cap}"
+        )
+
+    elif changed and hasattr(base_env, "curriculum_active_stage"):
+        # When only --start-k is used, promote active stage up to the new cap.
+        # This prevents a mature Stage0 checkpoint from staying in Stage0 after
+        # resume metadata was restored.
+        old_active = int(getattr(base_env, "curriculum_active_stage", 0))
+        new_active = max(old_active, int(stage_cap))
+        base_env.curriculum_active_stage = int(new_active)
+
+        if new_active != old_active:
+            if hasattr(base_env, "curriculum_stage_start_steps"):
+                base_env.curriculum_stage_start_steps = int(getattr(base_env, "global_steps", 0))
+            if hasattr(base_env, "curriculum_last_check_steps"):
+                base_env.curriculum_last_check_steps = int(getattr(base_env, "global_steps", 0))
+
+        print(
+            f"[INFO] curriculum override ({reason}): "
+            f"active_stage {old_active} -> {new_active}, global_cap_now={stage_cap}"
+        )
+
+
 def task3_progress_postfix(env_steps: int, start_time: float, reward_mean: float, done_count: int, info: Dict[str, Any]):
     flat = flat_dict(info)
     fps = env_steps / max(time.time() - start_time, 1e-6)
@@ -311,8 +441,9 @@ def task3_progress_postfix(env_steps: int, start_time: float, reward_mean: float
         "done": int(done_count),
         "stage": f"{flat.get('telemetry/Command_Stage', 0.0):.1f}",
         "dist": f"{flat.get('telemetry/Distance_To_Goal', 0.0):.2f}",
-        "prog": f"{flat.get('telemetry/Progress', 0.0):+.3f}",
-        "succ": f"{flat.get('events/Success_Rate', 0.0):.3f}",
+        "dr": f"{flat.get('telemetry/Distance_Reduction_Ratio', 0.0):+.2f}",
+        "prog": f"{flat.get('telemetry/Progress_Step', flat.get('telemetry/Progress', 0.0)):+.3f}",
+        "win_succ": f"{flat.get('telemetry/Current_Window_Success_Rate', flat.get('events/Success_Rate', 0.0)):.3f}",
         "coll": f"{flat.get('events/Collision_Rate', 0.0):.3f}",
         "fall": f"{flat.get('events/Fall_Rate', 0.0):.3f}",
         "h": f"{flat.get('telemetry/Base_Height', 0.0):.2f}",
@@ -501,14 +632,11 @@ def _find_first_linear_weight_key(state: Dict[str, torch.Tensor]) -> Optional[st
         return None
 
     # Prefer the largest input dimension first-layer candidate.
-    # Typical:
-    #   Task1/Task2 first layer: [hidden, 435]
-    #   Task3 first layer:       [hidden, 1285]
     candidates.sort(key=lambda x: x[2], reverse=True)
     return candidates[0][0]
 
 
-def build_old_to_task3_column_mapping(old_single: int, new_single: int = 257, n_stack: int = 5):
+def build_old_to_task3_column_mapping(old_single: int, new_single: int = 0, n_stack: int = 5):
     """Map Task1/Task2 stacked obs columns to Task3 stacked obs columns.
 
     Old Task1/Task2 single-frame obs layout assumed:
@@ -541,8 +669,7 @@ def build_old_to_task3_column_mapping(old_single: int, new_single: int = 257, n_
         66:156  lidar
         156:246 lidar_delta
         246:254 risk
-        254:255 base_height
-        255:257 phase
+        legacy base height / phase fields
     """
 
     pairs = []
@@ -584,10 +711,11 @@ def build_old_to_task3_column_mapping(old_single: int, new_single: int = 257, n_
 
 
 def smart_copy_first_layer(dst_weight: torch.Tensor, src_weight: torch.Tensor, n_stack: int = 5) -> str:
-    """Copy old first-layer columns to Task3 first-layer columns.
+    """Legacy first-layer copy helper.
 
-    dst_weight: [hidden, 1285]
-    src_weight: [hidden, 435] or [hidden, 1285]
+    Task3-Navigation-V3 disables Task1/Task2 warm-start because the actor
+    observation layout is navigation-specific. This helper is kept only for
+    backward compatibility and should not be used for V3 experiments.
     """
 
     with torch.no_grad():
@@ -606,14 +734,14 @@ def smart_copy_first_layer(dst_weight: torch.Tensor, src_weight: torch.Tensor, n
         src_input_dim = int(src_weight.shape[1])
         dst_input_dim = int(dst_weight.shape[1])
 
-        if dst_input_dim != 1285:
-            return f"dst_not_task3_actor_input_dim_{dst_input_dim}"
+        # V3 does not support old Task1/Task2 column mapping.
+        return f"legacy_smart_copy_disabled_for_dst_input_dim_{dst_input_dim}"
 
         if src_input_dim % n_stack != 0:
             return f"src_input_dim_not_divisible_by_stack_{src_input_dim}"
 
         old_single = src_input_dim // n_stack
-        mapping = build_old_to_task3_column_mapping(old_single=old_single, new_single=257, n_stack=n_stack)
+        mapping = build_old_to_task3_column_mapping(old_single=old_single, new_single=dst_input_dim // n_stack, n_stack=n_stack)
 
         copied_cols = 0
         for old_col, new_col in mapping:
@@ -698,6 +826,19 @@ def _try_set_policy_log_std(policy, value: float) -> bool:
 
 
 def load_actor_warm_start(models: Dict[str, Any], path: str, device: str, label: str, pretrained_log_std: float) -> bool:
+    # Task3-Navigation-V3 uses a new actor observation layout and must be
+    # trained from scratch. Keep this function as a compatibility stub so old
+    # command lines fail safely instead of silently loading incompatible priors.
+    if not path:
+        print(f"[INFO] 未指定 {label} actor warm-start。")
+        return False
+
+    print(
+        f"[WARN] Task3-Navigation-V3 不支持 {label} actor warm-start，"
+        "已跳过。请从 scratch 训练，或使用 --resume 加载 V3 checkpoint。"
+    )
+    return False
+
     default_name = "go2_task2_model.pt" if "Task2" in label else "go2_task1_model.pt"
     path = _resolve_checkpoint_file(path, default_name=default_name)
 
@@ -747,7 +888,7 @@ def load_actor_warm_start(models: Dict[str, Any], path: str, device: str, label:
 def save_train_metadata(path, env_steps, num_envs, base_env, wrapped_env):
     torch.save(
         {
-            "stage": "unitree_go2_task3_navigation_obstacle_avoidance",
+            "stage": "unitree_go2_task3_navigation_v3",
             "algorithm": "skrl_ppo",
             "global_env_steps": int(env_steps),
             "num_envs": int(num_envs),
@@ -759,15 +900,15 @@ def save_train_metadata(path, env_steps, num_envs, base_env, wrapped_env):
             "num_actions": int(wrapped_env.action_space.shape[0]),
             "frame_stack": int(wrapped_env.n_stack),
             "asymmetric_critic": True,
-            "critic_layout": "actor_obs_stack_1285 + world_priv_68 = 1353",
+            "critic_layout": f"actor_obs_stack_{int(wrapped_env.observation_space.shape[0])} + world_priv_{int(wrapped_env.world_priv_dim)} = {int(wrapped_env.state_space.shape[0])}",
             "action_joint_names": list(base_env.cfg.action_joint_names),
             "foot_body_names": list(base_env.cfg.foot_body_names),
             "world_cfg": {
-                "num_lidar_rays": int(base_env.cfg.world_cfg.num_lidar_rays),
-                "max_static_obs": int(base_env.cfg.world_cfg.max_static_obs),
-                "max_dynamic_obs": int(base_env.cfg.world_cfg.max_dynamic_obs),
-                "env_size": float(base_env.cfg.world_cfg.env_size),
-                "curriculum_total_steps": int(base_env.cfg.world_cfg.curriculum_total_steps),
+                "num_lidar_rays": int(getattr(base_env.cfg.world_cfg, "num_lidar_rays", -1)),
+                "max_static_obs": int(getattr(base_env.cfg.world_cfg, "max_static_obs", -1)),
+                "max_dynamic_obs": int(getattr(base_env.cfg.world_cfg, "max_dynamic_obs", -1)),
+                "env_size": float(getattr(base_env.cfg.world_cfg, "env_size", 0.0)),
+                "curriculum_total_steps": int(getattr(base_env.cfg.world_cfg, "curriculum_total_steps", 0)),
             },
         },
         os.path.join(path, "train_metadata.pt"),
@@ -794,12 +935,13 @@ def main():
 
     base_env = Go2Task3Env(env_cfg)
 
-    if args_cli.start_k > 0:
-        base_env.global_steps = int(float(args_cli.start_k) * base_env.cfg.curriculum_total_steps)
-        print(
-            f"[INFO] 已设置初始课程进度 start_k={args_cli.start_k:.4f}, "
-            f"global_steps={base_env.global_steps:,}"
-        )
+    _apply_curriculum_start_override(
+        base_env,
+        start_k=float(args_cli.start_k),
+        force_stage=int(args_cli.force_stage),
+        reason="env_init",
+        prefer_max=False,
+    )
 
     stacked_env = Go2Task3AsymFrameStackWrapper(
         base_env,
@@ -819,10 +961,19 @@ def main():
     print(f"  critic input dim      = {env.state_space.shape[0]}")
     print(f"  action dim            = {env.action_space.shape[0]}")
 
-    if int(env.observation_space.shape[0]) != 1285:
-        raise RuntimeError(f"Task3 policy input dim should be 1285, got {env.observation_space.shape[0]}")
-    if int(env.state_space.shape[0]) != 1353:
-        raise RuntimeError(f"Task3 critic input dim should be 1353, got {env.state_space.shape[0]}")
+    expected_actor_dim = int(base_env.cfg.num_observations) * int(stacked_env.n_stack)
+    expected_critic_dim = expected_actor_dim + int(stacked_env.world_priv_dim)
+
+    if int(env.observation_space.shape[0]) != expected_actor_dim:
+        raise RuntimeError(
+            f"Task3 policy input dim mismatch: expected {expected_actor_dim}, "
+            f"got {env.observation_space.shape[0]}"
+        )
+    if int(env.state_space.shape[0]) != expected_critic_dim:
+        raise RuntimeError(
+            f"Task3 critic input dim mismatch: expected {expected_critic_dim}, "
+            f"got {env.state_space.shape[0]}"
+        )
 
     models = {
         "policy": Go2Actor(
@@ -843,30 +994,13 @@ def main():
     }
 
     if not args_cli.resume:
-        # Priority: Task2 > Task1. Task2 already contains multi-terrain gait robustness.
-        if args_cli.pretrained_task2:
-            loaded = load_actor_warm_start(
-                models=models,
-                path=args_cli.pretrained_task2,
-                device=env.device,
-                label="Task2",
-                pretrained_log_std=float(args_cli.pretrained_log_std),
-            )
-            if not loaded and args_cli.pretrained_task1:
-                load_actor_warm_start(
-                    models=models,
-                    path=args_cli.pretrained_task1,
-                    device=env.device,
-                    label="Task1",
-                    pretrained_log_std=float(args_cli.pretrained_log_std),
-                )
-        elif args_cli.pretrained_task1:
-            load_actor_warm_start(
-                models=models,
-                path=args_cli.pretrained_task1,
-                device=env.device,
-                label="Task1",
-                pretrained_log_std=float(args_cli.pretrained_log_std),
+        # Task3-Navigation-V3 changes the actor observation layout, so Task1/Task2
+        # actor warm-start is intentionally disabled. Use scratch training for V3.
+        if args_cli.pretrained_task1 or args_cli.pretrained_task2:
+            print(
+                "[WARN] Task3-Navigation-V3 uses a new observation layout; "
+                "--pretrained-task1/--pretrained-task2 are ignored. "
+                "Start from scratch, or use --resume only with a V3 checkpoint."
             )
 
     total_env_steps = int(args_cli.total_env_steps)
@@ -898,6 +1032,8 @@ def main():
     print(f"  - pretrained_task1     : {args_cli.pretrained_task1 if args_cli.pretrained_task1 else '<none>'}")
     print(f"  - pretrained_task2     : {args_cli.pretrained_task2 if args_cli.pretrained_task2 else '<none>'}")
     print(f"  - resume               : {args_cli.resume if args_cli.resume else '<none>'}")
+    print(f"  - start_k              : {args_cli.start_k}")
+    print(f"  - force_stage          : {args_cli.force_stage if args_cli.force_stage >= 0 else '<none>'}")
     print(f"  - tensorboard          : tensorboard --logdir={args_cli.log_root}")
 
     memory = RandomMemory(memory_size=int(cfg["rollouts"]), num_envs=num_envs, device=env.device)
@@ -928,6 +1064,14 @@ def main():
             except Exception as exc:
                 print(f"[WARN] metadata 恢复失败: {type(exc).__name__}: {exc}")
 
+    _apply_curriculum_start_override(
+        base_env,
+        start_k=float(args_cli.start_k),
+        force_stage=int(args_cli.force_stage),
+        reason="after_resume_metadata",
+        prefer_max=True,
+    )
+
     trainer = StepTrainer(
         cfg={
             "timesteps": int(total_vector_steps),
@@ -939,11 +1083,17 @@ def main():
     )
 
     print("\n🔥 [Go2 Task3 skrl PPO 已点火]")
-    print("👉 训练目标：自主导航 + 避障 + 奔跑。")
-    print("👉 Actor 输入：257 维单帧观测 × 5 帧堆叠 = 1285。")
-    print("👉 Critic 输入：actor_stack 1285 + world_priv 68 = 1353。")
-    print("👉 推荐 warm-start：优先 Task2，其次 Task1。")
-    print("👉 日志重点：Progress / Distance_To_Goal / Success_Rate / Collision_Rate / Fall_Rate / P_Foot_Slip。\n")
+    print("👉 训练目标：Task3-Navigation-V3 专用导航策略，从 scratch 学习进目标圈 + 避障 + 稳定运动。")
+    print(
+        f"👉 Actor 输入：{base_env.cfg.num_observations} 维单帧观测 × "
+        f"{stacked_env.n_stack} 帧堆叠 = {env.observation_space.shape[0]}。"
+    )
+    print(
+        f"👉 Critic 输入：actor_stack {env.observation_space.shape[0]} + "
+        f"world_priv {stacked_env.world_priv_dim} = {env.state_space.shape[0]}。"
+    )
+    print("👉 V3 不使用 Task1/Task2 warm-start；如需继续训练，只能 resume V3 checkpoint。")
+    print("👉 日志重点：Current_Window_Success_Rate / Distance_Reduction_Ratio / Near_Goal_Rate / Timeout_Final_Distance。\n")
 
     last_save = resume_env_steps
     update_id = 0

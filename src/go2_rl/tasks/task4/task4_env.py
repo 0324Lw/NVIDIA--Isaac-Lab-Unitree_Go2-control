@@ -251,15 +251,22 @@ class Go2Task4Env(gym.Env):
 
         # Episode counters.
         self.total_done_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+        # success 现在表示 tracking success，不再等同于 timeout alive。
         self.total_success_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
         self.total_fall_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
         self.total_timeout_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.total_alive_timeout_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.total_tracking_success_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.total_tracking_fail_timeout_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
 
         stage_count = len(self.cfg.stage_thresholds)
         self.stage_done_counter = torch.zeros(stage_count, dtype=torch.float32, device=self.device)
+        # success 现在统计 tracking success；timeout alive 单独统计。
         self.stage_success_counter = torch.zeros(stage_count, dtype=torch.float32, device=self.device)
         self.stage_fall_counter = torch.zeros(stage_count, dtype=torch.float32, device=self.device)
         self.stage_timeout_counter = torch.zeros(stage_count, dtype=torch.float32, device=self.device)
+        self.stage_alive_timeout_counter = torch.zeros(stage_count, dtype=torch.float32, device=self.device)
+        self.stage_tracking_fail_timeout_counter = torch.zeros(stage_count, dtype=torch.float32, device=self.device)
 
         self.reset()
 
@@ -503,7 +510,10 @@ class Go2Task4Env(gym.Env):
 
         n = int(env_ids.numel())
 
-        current_stage = self.stage_from_global_steps(int(self.global_steps))
+        if int(getattr(self.cfg, "force_stage", -1)) >= 0:
+            current_stage = int(max(0, min(int(getattr(self.cfg, "force_stage", -1)), len(self.cfg.stage_thresholds) - 1)))
+        else:
+            current_stage = self.stage_from_global_steps(int(self.global_steps))
         stages = torch.full((n,), current_stage, dtype=torch.long, device=self.device)
         self.env_stage[env_ids] = stages
 
@@ -1036,6 +1046,13 @@ class Go2Task4Env(gym.Env):
         cmd_vy = self.commands[:, 1]
         cmd_wz = self.commands[:, 2]
 
+        cmd_speed_abs = torch.clamp(torch.abs(cmd_vx), min=float(self.cfg.cmd_speed_min))
+        cmd_sign = torch.where(cmd_vx >= 0.0, torch.ones_like(cmd_vx), -torch.ones_like(cmd_vx))
+        actual_forward = vx * cmd_sign
+        speed_ratio = actual_forward / cmd_speed_abs
+        forward_ratio = torch.clamp(speed_ratio, 0.0, 1.0)
+        cmd_move_gate = (torch.abs(cmd_vx) > float(self.cfg.move_cmd_threshold)).float()
+
         lin_err_sq = torch.square(vx - cmd_vx) + 0.5 * torch.square(vy - cmd_vy)
         yaw_err_sq = torch.square(wz - cmd_wz)
 
@@ -1043,8 +1060,16 @@ class Go2Task4Env(gym.Env):
         upright_gate = torch.clamp(1.0 - roll_pitch_mag / 0.45, 0.0, 1.0)
         stability_gate = height_gate * upright_gate
 
-        r_cmd_lin = torch.exp(-float(self.cfg.sigma_cmd_lin) * lin_err_sq) * stability_gate
+        speed_gate = torch.clamp(speed_ratio / max(float(self.cfg.cmd_lin_speed_gate_ref), 1e-6), 0.0, 1.0)
+        cmd_lin_gate = float(self.cfg.cmd_lin_speed_gate_floor) + (1.0 - float(self.cfg.cmd_lin_speed_gate_floor)) * speed_gate
+        stability_speed_gate = float(self.cfg.stability_speed_gate_floor) + (1.0 - float(self.cfg.stability_speed_gate_floor)) * speed_gate
+
+        r_cmd_lin_base = torch.exp(-float(self.cfg.sigma_cmd_lin) * lin_err_sq) * stability_gate
+        r_cmd_lin = r_cmd_lin_base * ((1.0 - cmd_move_gate) + cmd_move_gate * cmd_lin_gate)
         r_cmd_yaw = torch.exp(-float(self.cfg.sigma_cmd_yaw) * yaw_err_sq) * upright_gate
+        r_forward_ratio = forward_ratio * cmd_move_gate * stability_gate
+        under_ratio = torch.relu(float(self.cfg.required_speed_ratio) - speed_ratio)
+        p_under_speed = -torch.clamp(torch.square(under_ratio), 0.0, 2.0) * cmd_move_gate * stability_gate
         p_lateral_vel = -torch.clamp(torch.square(vy), max=2.0)
         p_low_height = -torch.square(torch.clamp((0.285 - base_height) / 0.10, 0.0, 2.0))
 
@@ -1070,8 +1095,11 @@ class Go2Task4Env(gym.Env):
         r_push_survival = self.push_active.float() * torch.exp(-2.5 * torch.square(roll_pitch_mag))
 
         # ----------------------------- C. Stability -----------------------------
-        r_upright = torch.exp(-float(self.cfg.sigma_upright) * torch.square(roll_pitch_mag))
-        r_height = torch.exp(-float(self.cfg.sigma_height) * torch.square(base_height - float(self.cfg.target_height)))
+        r_upright_base = torch.exp(-float(self.cfg.sigma_upright) * torch.square(roll_pitch_mag))
+        r_height_base = torch.exp(-float(self.cfg.sigma_height) * torch.square(base_height - float(self.cfg.target_height)))
+        stability_reward_gate = (1.0 - cmd_move_gate) + cmd_move_gate * stability_speed_gate
+        r_upright = r_upright_base * stability_reward_gate
+        r_height = r_height_base * stability_reward_gate
 
         p_base_ang = -torch.clamp(torch.square(wx) + torch.square(wy), max=6.0)
         p_z_vel = -torch.abs(vz)
@@ -1136,6 +1164,8 @@ class Go2Task4Env(gym.Env):
 
         continuous_raw = (
             float(self.cfg.w_cmd_lin) * r_cmd_lin
+            + float(self.cfg.w_forward_ratio) * r_forward_ratio
+            + float(self.cfg.w_under_speed) * p_under_speed
             + float(self.cfg.w_cmd_yaw) * r_cmd_yaw
             + float(self.cfg.w_lateral_vel) * p_lateral_vel
             + float(self.cfg.w_tracking_recovery) * r_tracking_recovery
@@ -1183,11 +1213,18 @@ class Go2Task4Env(gym.Env):
         terminated = is_fallen
         truncated = timeout & (~terminated)
 
-        success = truncated
+        alive_timeout = truncated
+        lin_track_ok = speed_ratio > float(self.cfg.tracking_success_speed_ratio)
+        yaw_track_ok = torch.abs(wz - cmd_wz) < float(self.cfg.tracking_success_yaw_error)
+        height_ok = (base_height > float(self.cfg.tracking_success_min_height)) & (base_height < float(self.cfg.tracking_success_max_height))
+        stable_ok = roll_pitch_mag < float(self.cfg.tracking_success_max_roll_pitch)
+        tracking_success = alive_timeout & lin_track_ok & yaw_track_ok & height_ok & stable_ok
+        tracking_fail_timeout = alive_timeout & (~tracking_success)
+        success = tracking_success
 
         event_reward = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
         event_reward = torch.where(is_fallen, event_reward + float(self.cfg.rew_fall), event_reward)
-        event_reward = torch.where(success, event_reward + float(self.cfg.rew_timeout_alive), event_reward)
+        event_reward = torch.where(tracking_success, event_reward + float(self.cfg.rew_timeout_alive), event_reward)
 
         reward_raw = continuous + event_reward
 
@@ -1214,6 +1251,9 @@ class Go2Task4Env(gym.Env):
             self.total_success_episodes += success.float().sum()
             self.total_fall_episodes += is_fallen.float().sum()
             self.total_timeout_episodes += truncated.float().sum()
+            self.total_alive_timeout_episodes += alive_timeout.float().sum()
+            self.total_tracking_success_episodes += tracking_success.float().sum()
+            self.total_tracking_fail_timeout_episodes += tracking_fail_timeout.float().sum()
 
             for stage in range(len(self.cfg.stage_thresholds)):
                 mask = done & (self.env_stage == stage)
@@ -1222,15 +1262,22 @@ class Go2Task4Env(gym.Env):
                     self.stage_success_counter[stage] += (mask & success).float().sum()
                     self.stage_fall_counter[stage] += (mask & is_fallen).float().sum()
                     self.stage_timeout_counter[stage] += (mask & truncated).float().sum()
+                    self.stage_alive_timeout_counter[stage] += (mask & alive_timeout).float().sum()
+                    self.stage_tracking_fail_timeout_counter[stage] += (mask & tracking_fail_timeout).float().sum()
 
         total_done_safe = torch.clamp(self.total_done_episodes, min=1.0)
 
         stage_success_rate = self.stage_success_counter / torch.clamp(self.stage_done_counter, min=1.0)
         stage_fall_rate = self.stage_fall_counter / torch.clamp(self.stage_done_counter, min=1.0)
+        stage_alive_timeout_rate = self.stage_alive_timeout_counter / torch.clamp(self.stage_done_counter, min=1.0)
+        stage_tracking_fail_timeout_rate = self.stage_tracking_fail_timeout_counter / torch.clamp(self.stage_done_counter, min=1.0)
+        active_stage_idx = int(max(0, min(self.stage_from_global_steps(int(self.global_steps)), len(self.cfg.stage_thresholds) - 1)))
 
         info = {
             "reward_components": {
                 "R_Cmd_Lin": self._mean_detached(float(self.cfg.w_cmd_lin) * r_cmd_lin),
+                "R_Forward_Ratio": self._mean_detached(float(self.cfg.w_forward_ratio) * r_forward_ratio),
+                "P_Under_Speed": self._mean_detached(float(self.cfg.w_under_speed) * p_under_speed),
                 "R_Cmd_Yaw": self._mean_detached(float(self.cfg.w_cmd_yaw) * r_cmd_yaw),
                 "P_Lateral_Vel": self._mean_detached(float(self.cfg.w_lateral_vel) * p_lateral_vel),
                 "R_Tracking_Recovery": self._mean_detached(float(self.cfg.w_tracking_recovery) * r_tracking_recovery),
@@ -1260,10 +1307,16 @@ class Go2Task4Env(gym.Env):
             },
             "events": {
                 "Success_Rate": self._mean_detached(success.float()),
+                "Tracking_Success_Rate": self._mean_detached(tracking_success.float()),
+                "Alive_Timeout_Rate": self._mean_detached(alive_timeout.float()),
+                "Tracking_Fail_Timeout_Rate": self._mean_detached(tracking_fail_timeout.float()),
                 "Fall_Rate": self._mean_detached(is_fallen.float()),
                 "Timeout_Rate": self._mean_detached(truncated.float()),
                 "Done_Rate": self._mean_detached(done.float()),
                 "Episode_Success_Total_Rate": self.total_success_episodes / total_done_safe,
+                "Episode_Tracking_Success_Total_Rate": self.total_tracking_success_episodes / total_done_safe,
+                "Episode_Alive_Timeout_Total_Rate": self.total_alive_timeout_episodes / total_done_safe,
+                "Episode_Tracking_Fail_Timeout_Total_Rate": self.total_tracking_fail_timeout_episodes / total_done_safe,
                 "Episode_Fall_Total_Rate": self.total_fall_episodes / total_done_safe,
                 "Episode_Timeout_Total_Rate": self.total_timeout_episodes / total_done_safe,
             },
@@ -1276,6 +1329,13 @@ class Go2Task4Env(gym.Env):
                 "Actual_Vx": self._mean_detached(vx),
                 "Actual_Vy": self._mean_detached(vy),
                 "Actual_Wz": self._mean_detached(wz),
+                "Actual_Forward": self._mean_detached(actual_forward),
+                "Cmd_Speed_Abs": self._mean_detached(cmd_speed_abs),
+                "Speed_Ratio": self._mean_detached(speed_ratio),
+                "Forward_Ratio": self._mean_detached(forward_ratio),
+                "Under_Ratio": self._mean_detached(under_ratio),
+                "Cmd_Lin_Speed_Gate": self._mean_detached(cmd_lin_gate),
+                "Stability_Speed_Gate": self._mean_detached(stability_reward_gate),
                 "Tracking_Error": self._mean_detached(tracking_error),
                 "Base_Height": self._mean_detached(base_height),
                 "RollPitch_Mag": self._mean_detached(roll_pitch_mag),
@@ -1307,7 +1367,15 @@ class Go2Task4Env(gym.Env):
                 "Stage4_Ratio": self._mean_detached((self.env_stage == 4).float()),
                 "Stage5_Ratio": self._mean_detached((self.env_stage == 5).float()),
                 "Stage_Success_Rate_Mean": self._mean_detached(stage_success_rate),
+                "Stage_Tracking_Success_Rate_Mean": self._mean_detached(stage_success_rate),
+                "Stage_Alive_Timeout_Rate_Mean": self._mean_detached(stage_alive_timeout_rate),
+                "Stage_Tracking_Fail_Timeout_Rate_Mean": self._mean_detached(stage_tracking_fail_timeout_rate),
                 "Stage_Fall_Rate_Mean": self._mean_detached(stage_fall_rate),
+                "Active_Stage": self._float_tensor(float(active_stage_idx)),
+                "Active_Stage_Tracking_Success_Rate": stage_success_rate[active_stage_idx],
+                "Active_Stage_Alive_Timeout_Rate": stage_alive_timeout_rate[active_stage_idx],
+                "Active_Stage_Tracking_Fail_Timeout_Rate": stage_tracking_fail_timeout_rate[active_stage_idx],
+                "Active_Stage_Fall_Rate": stage_fall_rate[active_stage_idx],
             },
             "debug": {
                 "Returned_Obs_Dim": self._float_tensor(float(self.num_observations)),

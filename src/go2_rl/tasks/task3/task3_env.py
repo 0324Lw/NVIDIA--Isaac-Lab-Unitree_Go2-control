@@ -1,5 +1,5 @@
 # Copyright (c) 2026
-# Unitree Go2 Task3: autonomous navigation + obstacle avoidance + running environment.
+# Unitree Go2 Task3-V3.1: navigation-success oriented obstacle avoidance environment.
 #
 # Strict refactor notes:
 # 1. This file defines IsaacLab Go2 environment only.
@@ -7,8 +7,8 @@
 # 3. Analytical navigation world is Task3World.
 # 4. Obstacles are not real prims. Lidar, collision, target, risk, and privileged
 #    features are computed by Task3World GPU tensors.
-# 5. Actor obs = 257.
-# 6. Privileged obs = 325 = actor obs 257 + world privileged 68.
+# 5. Actor obs = 208 when num_lidar_rays = 60.
+# 6. Privileged obs = 276 = actor obs 208 + world privileged 68.
 # 7. Training frame-stack is handled later in task3_train.py.
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def make_go2_task3_scene_cfg(cfg: Task3Config):
 
 
 class Go2Task3Env(gym.Env):
-    """Go2 Task3: autonomous navigation + obstacle avoidance + running.
+    """Go2 Task3-V3.1: navigation-success oriented obstacle avoidance.
 
     Actor observation layout, dim = 257:
         base_lin_vel_b       3
@@ -208,6 +208,10 @@ class Go2Task3Env(gym.Env):
         )
 
         self.progress_ema = torch.zeros(n, dtype=torch.float32, device=self.device)
+        self.progress_step = torch.zeros(n, dtype=torch.float32, device=self.device)
+        self.initial_goal_distance = torch.ones(n, dtype=torch.float32, device=self.device)
+        self.prev_distance_to_goal = torch.ones(n, dtype=torch.float32, device=self.device)
+        self.distance_reduction_ratio = torch.zeros(n, dtype=torch.float32, device=self.device)
 
         self.phase = torch.zeros(n, dtype=torch.float32, device=self.device)
         self.prev_foot_contact = torch.zeros((n, 4), dtype=torch.float32, device=self.device)
@@ -220,6 +224,35 @@ class Go2Task3Env(gym.Env):
         self.total_fall_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
         self.total_timeout_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
         self.total_out_of_bounds_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+
+        # V3.1 performance-gated curriculum state.
+        # 课程推进使用当前窗口 episode 统计，不使用累计成功率日志。
+        floor_k = float(getattr(cfg.world_cfg, "curriculum_resume_k_floor", 0.0))
+        self.curriculum_active_stage = int(self.world.stage_from_progress(floor_k))
+        self.curriculum_last_check_steps = 0
+        self.curriculum_stage_start_steps = 0
+
+        self.window_done_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_success_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_collision_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_fall_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_timeout_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_reduction_sum = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_heading_sum = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_timeout_final_distance_sum = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_timeout_final_distance_count = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_near_goal_sum = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.window_success_time_sum = torch.zeros((), dtype=torch.float32, device=self.device)
+
+        self.curriculum_window_success_rate = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.curriculum_window_collision_rate = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.curriculum_window_fall_rate = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.curriculum_window_timeout_rate = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.curriculum_window_reduction = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.curriculum_window_heading = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.curriculum_window_timeout_final_distance = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.curriculum_window_near_goal_rate = torch.zeros((), dtype=torch.float32, device=self.device)
+        self.curriculum_window_success_final_time = torch.zeros((), dtype=torch.float32, device=self.device)
 
         if bool(cfg.print_debug_info):
             self._print_debug_info()
@@ -371,6 +404,170 @@ class Go2Task3Env(gym.Env):
         print(f" contact body names : {list(self.contact.body_names)}")
         print("=" * 120 + "\n")
 
+    def _effective_curriculum_steps(self) -> int:
+        """Return curriculum steps with optional resume floor for Task3-V2."""
+
+        floor_k = float(getattr(self.cfg.world_cfg, "curriculum_resume_k_floor", 0.0))
+        floor_steps = int(floor_k * float(self.cfg.world_cfg.curriculum_total_steps))
+        return int(max(int(self.global_steps), floor_steps))
+
+    def _effective_curriculum_k(self) -> float:
+        """Return curriculum k with optional resume floor for logging and gating."""
+
+        return float(self.world.curriculum_k(self._effective_curriculum_steps()))
+
+    def _global_stage_cap(self) -> int:
+        """Return max allowed stage from global curriculum progress."""
+
+        return int(self.world.stage_from_global_steps(self._effective_curriculum_steps()))
+
+    def _reset_curriculum_window(self) -> None:
+        self.window_done_episodes.zero_()
+        self.window_success_episodes.zero_()
+        self.window_collision_episodes.zero_()
+        self.window_fall_episodes.zero_()
+        self.window_timeout_episodes.zero_()
+        self.window_reduction_sum.zero_()
+        self.window_heading_sum.zero_()
+        self.window_timeout_final_distance_sum.zero_()
+        self.window_timeout_final_distance_count.zero_()
+        self.window_near_goal_sum.zero_()
+        self.window_success_time_sum.zero_()
+
+    def _update_curriculum_window(
+        self,
+        done: torch.Tensor,
+        success: torch.Tensor,
+        fall: torch.Tensor,
+        collision: torch.Tensor,
+        timeout: torch.Tensor,
+        distance_reduction_ratio: torch.Tensor,
+        dist_to_goal: torch.Tensor,
+        heading_cos: torch.Tensor,
+        near_goal_flag: torch.Tensor,
+    ) -> None:
+        """Update current-window episode statistics for Task3-V3.1 curriculum."""
+
+        done = done.detach().bool()
+        if not bool(done.any()):
+            return
+
+        done_f = done.float()
+        self.window_done_episodes += done_f.sum()
+        self.window_success_episodes += (success.detach().float() * done_f).sum()
+        self.window_collision_episodes += (collision.detach().float() * done_f).sum()
+        self.window_fall_episodes += (fall.detach().float() * done_f).sum()
+        self.window_timeout_episodes += (timeout.detach().float() * done_f).sum()
+        self.window_reduction_sum += (distance_reduction_ratio.detach().float() * done_f).sum()
+        self.window_heading_sum += (heading_cos.detach().float() * done_f).sum()
+        self.window_near_goal_sum += (near_goal_flag.detach().float() * done_f).sum()
+
+        timeout_f = timeout.detach().float() * done_f
+        self.window_timeout_final_distance_sum += (dist_to_goal.detach().float() * timeout_f).sum()
+        self.window_timeout_final_distance_count += timeout_f.sum()
+
+        success_f = success.detach().float() * done_f
+        self.window_success_time_sum += (
+            self.episode_steps.detach().float()
+            / max(float(self.cfg.max_episode_length), 1.0)
+            * success_f
+        ).sum()
+
+    def _maybe_update_performance_curriculum(self) -> None:
+        """Advance active stage using current-window episode statistics."""
+
+        if not bool(getattr(self.cfg.world_cfg, "use_performance_gated_curriculum", False)):
+            self.curriculum_active_stage = self._global_stage_cap()
+            return
+
+        if int(self.global_steps) - int(self.curriculum_last_check_steps) < int(self.cfg.world_cfg.curriculum_check_interval_steps):
+            return
+
+        if float(self.window_done_episodes.item()) < float(self.cfg.world_cfg.curriculum_min_window_done):
+            return
+
+        self.curriculum_last_check_steps = int(self.global_steps)
+
+        done_safe = torch.clamp(self.window_done_episodes, min=1.0)
+        timeout_safe = torch.clamp(self.window_timeout_final_distance_count, min=1.0)
+        success_safe = torch.clamp(self.window_success_episodes, min=1.0)
+
+        self.curriculum_window_success_rate = self.window_success_episodes / done_safe
+        self.curriculum_window_collision_rate = self.window_collision_episodes / done_safe
+        self.curriculum_window_fall_rate = self.window_fall_episodes / done_safe
+        self.curriculum_window_timeout_rate = self.window_timeout_episodes / done_safe
+        self.curriculum_window_reduction = self.window_reduction_sum / done_safe
+        self.curriculum_window_heading = self.window_heading_sum / done_safe
+        self.curriculum_window_near_goal_rate = self.window_near_goal_sum / done_safe
+        self.curriculum_window_timeout_final_distance = self.window_timeout_final_distance_sum / timeout_safe
+        self.curriculum_window_success_final_time = self.window_success_time_sum / success_safe
+
+        stage = int(self.curriculum_active_stage)
+        cap = int(self._global_stage_cap())
+
+        if stage >= min(cap, self.world.stage_count - 1):
+            self._reset_curriculum_window()
+            return
+
+        if int(self.global_steps) - int(self.curriculum_stage_start_steps) < int(self.cfg.world_cfg.curriculum_min_stage_steps):
+            self._reset_curriculum_window()
+            return
+
+        idx = max(0, min(stage, self.world.stage_count - 2))
+
+        success_ok = float(self.curriculum_window_success_rate.item()) >= float(self.cfg.world_cfg.curriculum_success_gate[idx])
+        reduction_ok = float(self.curriculum_window_reduction.item()) >= float(self.cfg.world_cfg.curriculum_reduction_gate[idx])
+        heading_ok = float(self.curriculum_window_heading.item()) >= float(self.cfg.world_cfg.curriculum_heading_gate[idx])
+        fall_ok = float(self.curriculum_window_fall_rate.item()) <= float(self.cfg.world_cfg.curriculum_fall_gate[idx])
+        collision_ok = float(self.curriculum_window_collision_rate.item()) <= float(self.cfg.world_cfg.curriculum_collision_gate[idx])
+        timeout_dist_ok = float(self.curriculum_window_timeout_final_distance.item()) <= float(self.cfg.world_cfg.curriculum_timeout_final_dist_gate[idx])
+
+        if success_ok and reduction_ok and heading_ok and fall_ok and collision_ok and timeout_dist_ok:
+            self.curriculum_active_stage = min(stage + 1, cap, self.world.stage_count - 1)
+            self.curriculum_stage_start_steps = int(self.global_steps)
+
+        self._reset_curriculum_window()
+
+    def _sample_reset_stages(self, env_ids: torch.Tensor) -> torch.Tensor:
+        """Sample reset stages using current / previous / next-stage mixture."""
+
+        env_ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device).flatten()
+        n = int(env_ids.numel())
+        if n == 0:
+            return torch.zeros((0,), dtype=torch.long, device=self.device)
+
+        if not bool(getattr(self.cfg.world_cfg, "use_performance_gated_curriculum", False)):
+            stage = self._global_stage_cap()
+            return torch.full((n,), int(stage), dtype=torch.long, device=self.device)
+
+        cap = int(self._global_stage_cap())
+        active = min(int(self.curriculum_active_stage), cap)
+        max_stage = self.world.stage_count - 1
+
+        stages = torch.full((n,), int(active), dtype=torch.long, device=self.device)
+        u = torch.rand(n, dtype=torch.float32, device=self.device)
+
+        if active <= 0:
+            next_stage = min(active + 1, cap, max_stage)
+            next_mask = u >= float(self.cfg.world_cfg.curriculum_stage0_current_ratio)
+            stages = torch.where(next_mask, torch.full_like(stages, next_stage), stages)
+            return torch.clamp(stages, 0, max_stage)
+
+        if active >= min(cap, max_stage):
+            prev_stage = max(active - 1, 0)
+            prev_mask = u >= float(self.cfg.world_cfg.curriculum_max_stage_current_ratio)
+            stages = torch.where(prev_mask, torch.full_like(stages, prev_stage), stages)
+            return torch.clamp(stages, 0, max_stage)
+
+        prev_stage = max(active - 1, 0)
+        next_stage = min(active + 1, cap, max_stage)
+        prev_boundary = float(self.cfg.world_cfg.curriculum_prev_stage_ratio)
+        current_boundary = prev_boundary + float(self.cfg.world_cfg.curriculum_current_stage_ratio)
+
+        stages = torch.where(u < prev_boundary, torch.full_like(stages, prev_stage), stages)
+        stages = torch.where(u >= current_boundary, torch.full_like(stages, next_stage), stages)
+        return torch.clamp(stages, 0, max_stage)
+
     # -------------------------------------------------------------------------
     # Gym API
     # -------------------------------------------------------------------------
@@ -405,7 +602,8 @@ class Go2Task3Env(gym.Env):
 
         n = int(env_ids.numel())
 
-        self.world.reset_envs(env_ids, global_steps=int(self.global_steps))
+        reset_stages = self._sample_reset_stages(env_ids)
+        self.world.reset_envs(env_ids, stages=reset_stages)
 
         root_state = self.robot.data.default_root_state[env_ids].clone()
         root_state[:, 0:2] = self.env_origins[env_ids, :2] + self.world.start_pos[env_ids]
@@ -414,7 +612,7 @@ class Go2Task3Env(gym.Env):
         delta = self.world.target_pos[env_ids] - self.world.start_pos[env_ids]
         yaw_to_goal = torch.atan2(delta[:, 1], delta[:, 0])
 
-        k = self.world.curriculum_k(int(self.global_steps))
+        k = self._effective_curriculum_k()
         yaw_noise = float(self.cfg.init_yaw_noise_stage0) + k * (
             float(self.cfg.init_yaw_noise_stage5) - float(self.cfg.init_yaw_noise_stage0)
         )
@@ -457,6 +655,8 @@ class Go2Task3Env(gym.Env):
         self.episode_return[env_ids] = 0.0
         self.stuck_counter[env_ids] = 0
         self.progress_ema[env_ids] = 0.0
+        self.progress_step[env_ids] = 0.0
+        self.distance_reduction_ratio[env_ids] = 0.0
 
         self.phase[env_ids] = torch.rand(n, dtype=torch.float32, device=self.device)
         self.prev_foot_contact[env_ids] = 0.0
@@ -466,6 +666,11 @@ class Go2Task3Env(gym.Env):
 
         root_pos_local = self._root_pos_local()
         yaw_all = self._quat_yaw(self.robot.data.root_quat_w)
+
+        target_vec_all = self.world.target_pos - root_pos_local[:, :2]
+        dist_all = torch.norm(target_vec_all, dim=-1)
+        self.initial_goal_distance[env_ids] = torch.clamp(dist_all[env_ids], min=1.0e-6)
+        self.prev_distance_to_goal[env_ids] = dist_all[env_ids]
 
         # Task3World lidar is full-batch because world obstacle tensors are [num_envs, ...].
         lidar = self.world.compute_lidar_tensors(root_pos_local, yaw_all, normalize=True)
@@ -578,7 +783,8 @@ class Go2Task3Env(gym.Env):
         return torch.stack([stance_a, stance_b, stance_b, stance_a], dim=-1)
 
     def _compute_obs(self, update_lidar_history: bool = False) -> torch.Tensor:
-        base_lin_vel = self.robot.data.root_lin_vel_b
+        base_lin_vel_b = self.robot.data.root_lin_vel_b
+        base_lin_vel_w = self._root_lin_vel_w()
         base_ang_vel = self.robot.data.root_ang_vel_b
         projected_gravity = self.robot.data.projected_gravity_b
 
@@ -591,42 +797,97 @@ class Go2Task3Env(gym.Env):
         root_pos_local = self._root_pos_local()
         yaw = self._quat_yaw(self.robot.data.root_quat_w)
 
-        target_obs = self.world.get_target_obs(root_pos_local, yaw)
-        target_speed = torch.clamp(self.world.env_target_speed / 2.0, 0.0, 2.0).unsqueeze(-1)
+        target_vec = self.world.target_pos - root_pos_local[:, :2]
+        dist_to_goal = torch.norm(target_vec, dim=-1)
+        dir_world = target_vec / torch.clamp(dist_to_goal.unsqueeze(-1), min=1.0e-6)
+
+        c = torch.cos(yaw)
+        s_yaw = torch.sin(yaw)
+        goal_dir_body_x = c * dir_world[:, 0] + s_yaw * dir_world[:, 1]
+        goal_dir_body_y = -s_yaw * dir_world[:, 0] + c * dir_world[:, 1]
+        goal_dir_body = torch.stack([goal_dir_body_x, goal_dir_body_y], dim=-1)
+
+        target_angle = torch.atan2(target_vec[:, 1], target_vec[:, 0])
+        rel_angle = torch.atan2(torch.sin(target_angle - yaw), torch.cos(target_angle - yaw))
+        heading_sin_cos = torch.stack([torch.sin(rel_angle), torch.cos(rel_angle)], dim=-1)
+        heading_cos = torch.cos(rel_angle)
+
+        actual_along_goal = torch.sum(base_lin_vel_w[:, :2] * dir_world, dim=-1)
+        lateral_vel_to_goal = -dir_world[:, 1] * base_lin_vel_w[:, 0] + dir_world[:, 0] * base_lin_vel_w[:, 1]
+
+        success_radius = self.world.success_radius_tensor()
+        target_speed = self.world.env_target_speed
+        near_goal_radius = float(self.cfg.near_goal_radius_scale) * success_radius
+        desired_speed_scale = torch.clamp(
+            dist_to_goal / torch.clamp(near_goal_radius, min=1.0e-6),
+            min=float(self.cfg.near_goal_min_speed_ratio),
+            max=1.0,
+        )
+        desired_speed = target_speed * desired_speed_scale
+
+        speed_ratio = actual_along_goal / torch.clamp(desired_speed, min=1.0e-6)
+        initial_dist = torch.clamp(self.initial_goal_distance, min=1.0e-6)
+        distance_reduction_ratio = torch.clamp((initial_dist - dist_to_goal) / initial_dist, -1.0, 1.0)
+        near_goal_flag = (dist_to_goal < near_goal_radius).float()
+        time_fraction = self.episode_steps.float() / max(float(self.cfg.max_episode_length), 1.0)
+        stuck_timer_norm = torch.clamp(
+            self.stuck_counter.float() / max(float(self.cfg.stuck_counter_limit), 1.0),
+            0.0,
+            1.0,
+        )
 
         lidar = self.world.compute_lidar_tensors(root_pos_local, yaw, normalize=True)
         lidar_delta = self.world.compute_lidar_delta(lidar, self.prev_lidar)
-
         if update_lidar_history:
             self.prev_lidar.copy_(lidar)
 
         risk_features = self.world.compute_risk_features(root_pos_local, yaw)
+        front_min = risk_features[:, 0:1]
+        left_min = risk_features[:, 1:2]
+        right_min = risk_features[:, 2:3]
+        front_clearance = risk_features[:, 0:1]
+        obstacle_risk = risk_features[:, 7:8]
+        ttc_proxy = torch.clamp(-lidar_delta.min(dim=-1, keepdim=True)[0], 0.0, 1.0)
+        nearest_obstacle = torch.clamp(1.0 - obstacle_risk, 0.0, 1.0)
+        obstacle_summary = torch.cat(
+            [front_min, left_min, right_min, front_clearance, nearest_obstacle, obstacle_risk, ttc_proxy],
+            dim=-1,
+        )
 
         action_delta = self.last_action - self.prev_action
-
         base_height = self._compute_base_height().unsqueeze(-1)
-        sin_phase = torch.sin(2.0 * math.pi * self.phase).unsqueeze(-1)
-        cos_phase = torch.cos(2.0 * math.pi * self.phase).unsqueeze(-1)
 
         obs = torch.cat(
             [
-                base_lin_vel,
+                base_lin_vel_b,
                 base_ang_vel,
                 projected_gravity,
-                target_obs,
-                target_speed,
-                torch.clamp(self.progress_ema / 2.0, -2.0, 2.0).unsqueeze(-1),
                 q_err,
                 qd,
                 self.last_action,
                 action_delta,
                 contact,
+                base_height,
+                goal_dir_body,
+                torch.clamp(dist_to_goal / max(float(self.cfg.world_cfg.env_size), 1.0e-6), 0.0, 2.0).unsqueeze(-1),
+                torch.log1p(dist_to_goal).unsqueeze(-1),
+                heading_sin_cos,
+                heading_cos.unsqueeze(-1),
+                actual_along_goal.unsqueeze(-1),
+                lateral_vel_to_goal.unsqueeze(-1),
+                target_speed.unsqueeze(-1),
+                desired_speed.unsqueeze(-1),
+                speed_ratio.unsqueeze(-1),
+                self.progress_step.unsqueeze(-1),
+                torch.clamp(self.progress_ema / float(self.cfg.progress_obs_scale), -2.0, 2.0).unsqueeze(-1),
+                distance_reduction_ratio.unsqueeze(-1),
+                near_goal_flag.unsqueeze(-1),
+                torch.clamp(success_radius / max(float(self.cfg.world_cfg.env_size), 1.0e-6), 0.0, 1.0).unsqueeze(-1),
+                time_fraction.unsqueeze(-1),
+                stuck_timer_norm.unsqueeze(-1),
+                obstacle_summary,
                 lidar,
                 lidar_delta,
-                risk_features,
-                base_height,
-                sin_phase,
-                cos_phase,
             ],
             dim=-1,
         )
@@ -688,7 +949,7 @@ class Go2Task3Env(gym.Env):
 
         base_height = self._compute_base_height()
 
-        base_acc = (base_lin_vel_b - self.last_base_vel) / max(self.dt, 1e-6)
+        base_acc = (base_lin_vel_b - self.last_base_vel) / max(self.dt, 1.0e-6)
         self.base_acc_obs.copy_(base_acc)
         self.last_base_vel.copy_(base_lin_vel_b)
 
@@ -699,7 +960,6 @@ class Go2Task3Env(gym.Env):
         contact, normal_force = self._get_foot_contact()
         contact = contact.float()
         contact_count = contact.sum(dim=-1)
-
         ref_contact = self._build_trot_contact_ref().float()
 
         foot_height = self._compute_foot_heights()
@@ -708,98 +968,98 @@ class Go2Task3Env(gym.Env):
         # ----------------------------- Goal geometry -----------------------------
         target_vec = self.world.target_pos - root_pos_local[:, :2]
         dist_to_goal = torch.norm(target_vec, dim=-1)
-        dir_to_goal = target_vec / torch.clamp(dist_to_goal.unsqueeze(-1), min=1e-6)
+        dir_to_goal = target_vec / torch.clamp(dist_to_goal.unsqueeze(-1), min=1.0e-6)
 
         target_angle = torch.atan2(target_vec[:, 1], target_vec[:, 0])
-        rel_angle = torch.atan2(
-            torch.sin(target_angle - yaw),
-            torch.cos(target_angle - yaw),
-        )
-
+        rel_angle = torch.atan2(torch.sin(target_angle - yaw), torch.cos(target_angle - yaw))
         heading_cos = torch.cos(rel_angle)
-        heading_gate = torch.clamp(heading_cos, 0.0, 1.0)
+        heading_alignment = torch.exp(-float(self.cfg.sigma_heading) * torch.square(rel_angle))
 
         actual_along_goal = torch.sum(base_lin_vel_w[:, :2] * dir_to_goal, dim=-1)
-        lateral_speed = torch.abs(vy_b)
+        lateral_vel_to_goal = -dir_to_goal[:, 1] * base_lin_vel_w[:, 0] + dir_to_goal[:, 0] * base_lin_vel_w[:, 1]
 
         target_speed = self.world.env_target_speed
         success_radius = self.world.success_radius_tensor()
+        initial_dist = torch.clamp(self.initial_goal_distance, min=1.0e-6)
 
-        # ----------------------------- Progress -----------------------------
+        # ----------------------------- Progress / movement gates -----------------------------
         progress = self.world.compute_progress(root_pos_local, dt=self.dt)
+        progress_clamped = torch.clamp(progress, -float(self.cfg.progress_clip_neg), float(self.cfg.progress_clip_pos))
+        self.progress_step.copy_(progress_clamped.detach())
 
-        progress_clamped = torch.clamp(
-            progress,
-            -float(self.cfg.progress_clip_neg),
-            float(self.cfg.progress_clip_pos),
+        self.progress_ema.mul_(1.0 - float(self.cfg.progress_ema_alpha))
+        self.progress_ema.add_(progress_clamped, alpha=float(self.cfg.progress_ema_alpha))
+
+        distance_reduction_ratio = torch.clamp((initial_dist - dist_to_goal) / initial_dist, -1.0, 1.0)
+        self.distance_reduction_ratio.copy_(distance_reduction_ratio.detach())
+
+        near_goal_radius = float(self.cfg.near_goal_radius_scale) * success_radius
+        near_goal_flag = (dist_to_goal < near_goal_radius).float()
+
+        desired_speed_scale = torch.clamp(
+            dist_to_goal / torch.clamp(near_goal_radius, min=1.0e-6),
+            min=float(self.cfg.near_goal_min_speed_ratio),
+            max=1.0,
+        )
+        desired_speed = target_speed * desired_speed_scale
+        speed_ratio = actual_along_goal / torch.clamp(desired_speed, min=1.0e-6)
+        forward_ratio = torch.clamp(speed_ratio, 0.0, 1.0)
+
+        speed_gate = torch.clamp(
+            speed_ratio / max(float(self.cfg.reward_heading_speed_gate_ref), 1.0e-6),
+            0.0,
+            1.0,
+        )
+        progress_gate = torch.clamp(
+            torch.clamp(progress_clamped, min=0.0) / max(float(self.cfg.reward_progress_gate_ref), 1.0e-6),
+            0.0,
+            1.0,
+        )
+        heading_reward_gate = torch.maximum(speed_gate, progress_gate)
+        heading_gate_with_floor = float(self.cfg.reward_heading_floor) + (1.0 - float(self.cfg.reward_heading_floor)) * heading_reward_gate
+
+        r_goal_heading = heading_alignment * heading_gate_with_floor
+
+        speed_error = actual_along_goal - desired_speed
+        speed_gaussian = torch.exp(-float(self.cfg.sigma_speed) * torch.square(speed_error))
+        forward_gate = torch.clamp(forward_ratio / max(float(self.cfg.reward_forward_gate_ref), 1.0e-6), 0.0, 1.0)
+        r_goal_speed = (
+            float(self.cfg.reward_forward_ratio_weight_in_speed) * forward_ratio
+            + float(self.cfg.reward_speed_gaussian_weight_in_speed) * speed_gaussian * forward_gate
         )
 
-        self.progress_ema.mul_(0.90)
-        self.progress_ema.add_(progress_clamped, alpha=0.10)
-
-        r_progress = torch.tanh(float(self.cfg.progress_scale) * progress_clamped) * heading_gate
-
-        p_backtrack = -torch.clamp(
-            -progress_clamped,
-            min=0.0,
-            max=float(self.cfg.progress_clip_neg),
+        r_progress_step = torch.clamp(
+            progress_clamped / max(float(self.cfg.reward_progress_step_ref), 1.0e-6),
+            -1.0,
+            1.0,
         )
+        r_distance_reduction = distance_reduction_ratio
+        p_backtrack = -torch.clamp(-progress_clamped / max(float(self.cfg.reward_progress_step_ref), 1.0e-6), 0.0, 1.0)
 
-        r_goal_distance = torch.exp(-float(self.cfg.sigma_goal_distance) * dist_to_goal)
-        r_goal_heading = torch.exp(-float(self.cfg.sigma_heading) * torch.square(rel_angle))
+        moving_enough = (actual_along_goal > float(self.cfg.moving_speed_threshold)) | (progress_clamped > float(self.cfg.stuck_progress_threshold))
+        self.stuck_counter = torch.where(moving_enough, torch.zeros_like(self.stuck_counter), self.stuck_counter + 1)
+        stuck_timer_norm = torch.clamp(
+            self.stuck_counter.float() / max(float(self.cfg.stuck_counter_limit), 1.0),
+            0.0,
+            1.0,
+        )
+        p_stuck = -torch.square(torch.clamp(stuck_timer_norm - float(self.cfg.stuck_free_margin), min=0.0))
+        positive_progress_gate = torch.clamp(
+            torch.clamp(progress_clamped, min=0.0) / max(float(self.cfg.reward_progress_step_ref), 1.0e-6),
+            0.0,
+            1.0,
+        )
+        r_stuck_recovery = stuck_timer_norm * positive_progress_gate
 
         # ----------------------------- Finish zone -----------------------------
-        finish_outer = float(self.cfg.finish_outer_radius_scale) * success_radius
-        finish_inner = float(self.cfg.finish_inner_radius_scale) * success_radius
-
-        finish_gate = torch.clamp(
-            (finish_outer - dist_to_goal) / torch.clamp(finish_outer - finish_inner, min=1e-6),
-            0.0,
-            1.0,
-        )
-
-        forward_finish_ratio = torch.clamp(
-            actual_along_goal / max(float(self.cfg.hesitation_speed), 1e-6),
-            0.0,
-            1.0,
-        )
-
-        r_finish_pull = finish_gate * heading_gate * forward_finish_ratio
-
+        near_goal_reward = torch.exp(-dist_to_goal / torch.clamp(success_radius, min=1.0e-6))
+        finish_pull = near_goal_flag * near_goal_reward * (0.25 + 0.75 * forward_ratio)
         outside_success = (dist_to_goal > success_radius).float()
-        p_finish_hesitation = -finish_gate * outside_success * heading_gate * torch.clamp(
-            (float(self.cfg.hesitation_speed) - actual_along_goal) / max(float(self.cfg.hesitation_speed), 1e-6),
+        p_finish_hesitation = -near_goal_flag * outside_success * torch.clamp(
+            (float(self.cfg.min_finish_progress) - progress_clamped) / max(float(self.cfg.min_finish_progress), 1.0e-6),
             0.0,
             1.0,
         )
-
-        required_speed = torch.clamp(
-            0.55 * target_speed,
-            min=float(self.cfg.min_forward_speed),
-            max=0.42,
-        )
-
-        far_from_goal = (dist_to_goal > float(self.cfg.finish_outer_radius_scale) * success_radius).float()
-        p_under_speed = -far_from_goal * heading_gate * torch.clamp(
-            (required_speed - actual_along_goal) / torch.clamp(required_speed, min=1e-6),
-            0.0,
-            1.0,
-        )
-
-        episode_frac = self.episode_steps.float() / max(float(self.cfg.max_episode_length), 1.0)
-        deadline_gate = torch.clamp(
-            (episode_frac - float(self.cfg.deadline_start_frac))
-            / max(1.0 - float(self.cfg.deadline_start_frac), 1e-6),
-            0.0,
-            1.0,
-        )
-
-        normalized_remaining = torch.clamp(
-            (dist_to_goal - success_radius) / torch.clamp(self.world.env_target_speed * 3.0, min=0.5),
-            min=0.0,
-            max=3.0,
-        )
-        p_deadline = -deadline_gate * normalized_remaining
 
         # ----------------------------- Lidar / obstacle / safety -----------------------------
         lidar = self.world.compute_lidar_tensors(root_pos_local, yaw, normalize=True)
@@ -807,85 +1067,45 @@ class Go2Task3Env(gym.Env):
         risk_features = self.world.compute_risk_features(root_pos_local, yaw)
 
         front_clearance_norm = risk_features[:, 0]
-        left_clearance_norm = risk_features[:, 1]
-        right_clearance_norm = risk_features[:, 2]
         collision_risk = risk_features[:, 7]
-
         obstacle_gate = torch.clamp(self.world.env_stage.float() / 2.0, 0.0, 1.0)
-
         min_signed, min_static_signed, min_dynamic_signed = self.world.obstacle_signed_distance(root_pos_local)
 
         obstacle_margin_risk = torch.clamp(
             (float(self.cfg.safe_obstacle_distance) - min_signed)
-            / max(float(self.cfg.safe_obstacle_distance) - float(self.cfg.critical_obstacle_distance), 1e-6),
+            / max(float(self.cfg.safe_obstacle_distance) - float(self.cfg.critical_obstacle_distance), 1.0e-6),
             0.0,
             2.0,
         )
-
         p_obstacle_risk = -obstacle_gate * torch.square(torch.maximum(collision_risk, obstacle_margin_risk))
-
-        r_front_clearance = obstacle_gate * torch.clamp(front_clearance_norm, 0.0, 1.0)
-
+        moving_gate = (actual_along_goal > float(self.cfg.moving_speed_threshold)).float()
+        r_clearance_moving = obstacle_gate * moving_gate * torch.clamp(front_clearance_norm, 0.0, 1.0)
         approaching = torch.clamp(-lidar_delta.min(dim=-1)[0], 0.0, 1.0)
         p_ttc_proxy = -obstacle_gate * approaching * torch.clamp(collision_risk + 0.25, 0.0, 1.0)
-
-        side_preference = torch.tanh(3.0 * (right_clearance_norm - left_clearance_norm))
-        avoid_turn_hint = side_preference * torch.clamp(1.0 - front_clearance_norm, 0.0, 1.0)
-
-        r_active_avoid_heading = obstacle_gate * torch.clamp(
-            wz * avoid_turn_hint,
-            min=-0.5,
-            max=0.5,
-        )
 
         boundary_dist = self.world.boundary_signed_distance(root_pos_local)
         p_boundary = -torch.square(
             torch.clamp(
-                (float(self.cfg.world_cfg.warning_margin) - boundary_dist)
-                / max(float(self.cfg.world_cfg.warning_margin), 1e-6),
+                (float(self.cfg.world_cfg.warning_margin) - boundary_dist) / max(float(self.cfg.world_cfg.warning_margin), 1.0e-6),
                 0.0,
                 2.0,
             )
         )
 
-        # ----------------------------- Goal speed tracking under safety gate -----------------------------
-        safe_speed_gate = torch.clamp(1.0 - 0.70 * collision_risk * obstacle_gate, 0.25, 1.0)
-        desired_along_speed = target_speed * safe_speed_gate
-        speed_error = actual_along_goal - desired_along_speed
-
-        r_goal_speed = (
-            torch.exp(-float(self.cfg.sigma_speed) * torch.square(speed_error))
-            * heading_gate
-            * torch.clamp(1.0 - 1.5 * lateral_speed, 0.0, 1.0)
-        )
-
         # ----------------------------- Running / gait -----------------------------
-        move_gate = torch.clamp(
-            actual_along_goal / torch.clamp(target_speed, min=0.25),
-            0.0,
-            1.0,
-        )
-        move_gate = move_gate * heading_gate * torch.clamp(1.0 - collision_risk, 0.20, 1.0)
-        gait_gate = 0.20 + 0.80 * move_gate
-
+        gait_gate = 0.20 + 0.80 * forward_ratio * torch.clamp(heading_cos, min=0.0, max=1.0)
         r_phase_contact = (1.0 - torch.mean(torch.abs(contact - ref_contact), dim=-1)) * gait_gate
 
         first_contact = (contact > 0.5) & (self.prev_foot_contact < 0.5)
         self.feet_air_time += self.dt
-
         r_air_time = (
             torch.sum(
-                torch.clamp(
-                    self.feet_air_time - float(self.cfg.air_time_target),
-                    min=0.0,
-                    max=0.45,
-                )
+                torch.clamp(self.feet_air_time - float(self.cfg.air_time_target), min=0.0, max=0.45)
                 * first_contact.float(),
                 dim=-1,
             )
-            * move_gate
+            * gait_gate
         )
-
         self.feet_air_time = torch.where(contact > 0.5, torch.zeros_like(self.feet_air_time), self.feet_air_time)
         self.prev_foot_contact.copy_(contact)
 
@@ -895,23 +1115,18 @@ class Go2Task3Env(gym.Env):
                 * torch.exp(-float(self.cfg.sigma_clearance) * torch.abs(foot_height - float(self.cfg.foot_clearance_target))),
                 dim=-1,
             )
-            * move_gate
+            * gait_gate
         )
-
         r_contact_count = torch.exp(-torch.square(contact_count - 2.6)) * gait_gate
-
         raw_foot_slip = torch.sum(torch.sum(torch.square(foot_vel_xy), dim=-1) * contact, dim=-1)
         p_foot_slip = -torch.clamp(raw_foot_slip, max=8.0)
 
         # ----------------------------- Stability / regularization -----------------------------
         r_upright = (1.0 - projected_gravity[:, 2]) * 0.5
-
         r_height = torch.exp(-float(self.cfg.sigma_height) * torch.square(base_height - float(self.cfg.target_height)))
-
         p_base_ang = -torch.clamp(torch.square(wx) + torch.square(wy), max=6.0)
         p_base_acc = -torch.clamp(torch.sum(torch.square(base_acc), dim=-1), max=30.0)
         p_z_vel = -torch.abs(vz_b)
-
         p_default_pose = -torch.mean(torch.square(q_err), dim=-1)
 
         lower_margin = q - self.joint_lower
@@ -927,21 +1142,16 @@ class Go2Task3Env(gym.Env):
 
         torques = getattr(self.robot.data, "applied_torque", torch.zeros_like(self.robot.data.joint_vel))
         tau = torques[:, self.action_joint_ids_t]
-
         p_torque = -torch.clamp(torch.mean(torch.square(tau), dim=-1), max=40.0)
         p_energy = -torch.clamp(torch.mean(torch.abs(tau * qd), dim=-1), max=20.0)
-
-        distance_2d = torch.clamp(torch.norm(base_lin_vel_w[:, :2], dim=-1), min=0.05)
         p_specific_energy = -torch.clamp(
-            torch.mean(torch.abs(tau * qd), dim=-1) / distance_2d,
-            max=40.0,
+            torch.mean(torch.abs(tau * qd), dim=-1) / torch.clamp(torch.abs(actual_along_goal), min=0.15),
+            max=25.0,
         )
+        r_alive = torch.ones_like(base_height)
 
-        r_alive = torch.ones_like(vx_b)
-
-        # ----------------------------- Terminations and event rewards -----------------------------
+        # ----------------------------- Fall / event -----------------------------
         joint_vel_abs_max = torch.abs(self.robot.data.joint_vel).max(dim=-1)[0]
-
         is_fallen = (
             (base_height < float(self.cfg.fall_height))
             | (base_height > float(self.cfg.jump_height))
@@ -951,34 +1161,31 @@ class Go2Task3Env(gym.Env):
             | (joint_vel_abs_max > float(self.cfg.max_joint_vel_abs))
         )
 
-        terminated_world, truncated_world, event_reward, event_info = self.world.check_terminations(
-            root_pos_local,
-            is_fallen=is_fallen,
-        )
-
+        terminated, truncated, event_reward, event_info = self.world.check_terminations(root_pos_local, is_fallen=is_fallen)
         success = event_info["success"]
         collision = event_info["collision"]
         out_of_bounds = event_info["out_of_bounds"]
         timeout = event_info["timeout"]
 
-        terminated = terminated_world
-        truncated = truncated_world
+        timeout_final_ratio = torch.clamp(dist_to_goal / torch.clamp(initial_dist, min=1.0e-6), 0.0, 1.0)
+        p_timeout_final_distance = -truncated.float() * timeout_final_ratio
+        event_reward = event_reward + float(self.cfg.w_timeout_final_dist) * p_timeout_final_distance
 
-        # ----------------------------- Reward total -----------------------------
+        # ----------------------------- Reward aggregation -----------------------------
         continuous_raw = (
-            float(self.cfg.w_progress) * r_progress
-            + float(self.cfg.w_goal_speed) * r_goal_speed
+            float(self.cfg.w_progress_step) * r_progress_step
+            + float(self.cfg.w_distance_reduction) * r_distance_reduction
             + float(self.cfg.w_goal_heading) * r_goal_heading
-            + float(self.cfg.w_goal_distance) * r_goal_distance
-            + float(self.cfg.w_finish_pull) * r_finish_pull
-            + float(self.cfg.w_finish_hesitation) * p_finish_hesitation
-            + float(self.cfg.w_under_speed) * p_under_speed
+            + float(self.cfg.w_goal_speed) * r_goal_speed
             + float(self.cfg.w_backtrack) * p_backtrack
-            + float(self.cfg.w_deadline) * p_deadline
+            + float(self.cfg.w_stuck) * p_stuck
+            + float(self.cfg.w_stuck_recovery) * r_stuck_recovery
+            + float(self.cfg.w_near_goal) * near_goal_reward
+            + float(self.cfg.w_finish_pull) * finish_pull
+            + float(self.cfg.w_finish_hesitation) * p_finish_hesitation
+            + float(self.cfg.w_clearance_moving) * r_clearance_moving
             + float(self.cfg.w_obstacle_risk) * p_obstacle_risk
-            + float(self.cfg.w_front_clearance) * r_front_clearance
             + float(self.cfg.w_ttc_proxy) * p_ttc_proxy
-            + float(self.cfg.w_active_avoid_heading) * r_active_avoid_heading
             + float(self.cfg.w_boundary) * p_boundary
             + float(self.cfg.w_phase_contact) * r_phase_contact
             + float(self.cfg.w_air_time) * r_air_time
@@ -1000,17 +1207,11 @@ class Go2Task3Env(gym.Env):
             + float(self.cfg.w_specific_energy) * p_specific_energy
         )
 
-        continuous = torch.clamp(
-            continuous_raw,
-            -float(self.cfg.continuous_reward_clip),
-            float(self.cfg.continuous_reward_clip),
-        )
-
+        continuous = torch.clamp(continuous_raw, -float(self.cfg.continuous_reward_clip), float(self.cfg.continuous_reward_clip))
         reward_raw = continuous + event_reward
 
         projected_return = self.episode_return + reward_raw
-        no_event = event_reward.abs() < 1e-6
-
+        no_event = event_reward.abs() < 1.0e-6
         reward = torch.where(
             (projected_return > float(self.cfg.episode_return_abs_limit)) & no_event,
             float(self.cfg.episode_return_abs_limit) - self.episode_return,
@@ -1032,25 +1233,39 @@ class Go2Task3Env(gym.Env):
             self.total_timeout_episodes += timeout.float().sum()
             self.total_out_of_bounds_episodes += out_of_bounds.float().sum()
 
-        success_total_safe = torch.clamp(self.total_done_episodes, min=1.0)
+        self._update_curriculum_window(
+            done=done,
+            success=success,
+            fall=is_fallen,
+            collision=collision,
+            timeout=timeout,
+            distance_reduction_ratio=distance_reduction_ratio,
+            dist_to_goal=dist_to_goal,
+            heading_cos=heading_cos,
+            near_goal_flag=near_goal_flag,
+        )
+        self._maybe_update_performance_curriculum()
+        self.prev_distance_to_goal.copy_(dist_to_goal.detach())
 
+        success_total_safe = torch.clamp(self.total_done_episodes, min=1.0)
         world_stats = self.world.world_stats(root_pos_local)
 
         info = {
             "reward_components": {
-                "R_Progress": self._mean_detached(float(self.cfg.w_progress) * r_progress),
-                "R_Goal_Speed": self._mean_detached(float(self.cfg.w_goal_speed) * r_goal_speed),
+                "R_Progress_Step": self._mean_detached(float(self.cfg.w_progress_step) * r_progress_step),
+                "R_Distance_Reduction": self._mean_detached(float(self.cfg.w_distance_reduction) * r_distance_reduction),
                 "R_Goal_Heading": self._mean_detached(float(self.cfg.w_goal_heading) * r_goal_heading),
-                "R_Goal_Distance": self._mean_detached(float(self.cfg.w_goal_distance) * r_goal_distance),
-                "R_Finish_Pull": self._mean_detached(float(self.cfg.w_finish_pull) * r_finish_pull),
-                "P_Finish_Hesitation": self._mean_detached(float(self.cfg.w_finish_hesitation) * p_finish_hesitation),
-                "P_Under_Speed": self._mean_detached(float(self.cfg.w_under_speed) * p_under_speed),
+                "R_Goal_Speed": self._mean_detached(float(self.cfg.w_goal_speed) * r_goal_speed),
+                "R_Stuck_Recovery": self._mean_detached(float(self.cfg.w_stuck_recovery) * r_stuck_recovery),
                 "P_Backtrack": self._mean_detached(float(self.cfg.w_backtrack) * p_backtrack),
-                "P_Deadline": self._mean_detached(float(self.cfg.w_deadline) * p_deadline),
+                "P_Stuck": self._mean_detached(float(self.cfg.w_stuck) * p_stuck),
+                "R_Near_Goal": self._mean_detached(float(self.cfg.w_near_goal) * near_goal_reward),
+                "R_Finish_Pull": self._mean_detached(float(self.cfg.w_finish_pull) * finish_pull),
+                "P_Finish_Hesitation": self._mean_detached(float(self.cfg.w_finish_hesitation) * p_finish_hesitation),
+                "P_Timeout_Final_Distance": self._mean_detached(float(self.cfg.w_timeout_final_dist) * p_timeout_final_distance),
+                "R_Clearance_Moving": self._mean_detached(float(self.cfg.w_clearance_moving) * r_clearance_moving),
                 "P_Obstacle_Risk": self._mean_detached(float(self.cfg.w_obstacle_risk) * p_obstacle_risk),
-                "R_Front_Clearance": self._mean_detached(float(self.cfg.w_front_clearance) * r_front_clearance),
                 "P_TTC_Proxy": self._mean_detached(float(self.cfg.w_ttc_proxy) * p_ttc_proxy),
-                "R_Active_Avoid_Heading": self._mean_detached(float(self.cfg.w_active_avoid_heading) * r_active_avoid_heading),
                 "P_Boundary": self._mean_detached(float(self.cfg.w_boundary) * p_boundary),
                 "R_Phase_Contact": self._mean_detached(float(self.cfg.w_phase_contact) * r_phase_contact),
                 "R_Air_Time": self._mean_detached(float(self.cfg.w_air_time) * r_air_time),
@@ -1089,16 +1304,35 @@ class Go2Task3Env(gym.Env):
                 "Episode_Timeout_Total_Rate": self.total_timeout_episodes / success_total_safe,
             },
             "telemetry": {
-                "Curriculum_K": self._float_tensor(self.world.curriculum_k(int(self.global_steps)), self.device),
+                "Curriculum_K": self._float_tensor(self._effective_curriculum_k(), self.device),
                 "Command_Stage": self._mean_detached(self.world.env_stage.float()),
+                "Curriculum_Active_Stage": self._float_tensor(float(self.curriculum_active_stage), self.device),
+                "Curriculum_Global_Cap": self._float_tensor(float(self._global_stage_cap()), self.device),
+                "Current_Window_Success_Rate": self.curriculum_window_success_rate.detach(),
+                "Current_Window_Collision_Rate": self.curriculum_window_collision_rate.detach(),
+                "Current_Window_Fall_Rate": self.curriculum_window_fall_rate.detach(),
+                "Current_Window_Timeout_Rate": self.curriculum_window_timeout_rate.detach(),
+                "Current_Window_Distance_Reduction": self.curriculum_window_reduction.detach(),
+                "Current_Window_Heading_Cos": self.curriculum_window_heading.detach(),
+                "Timeout_Final_Distance_Mean": self.curriculum_window_timeout_final_distance.detach(),
+                "Near_Goal_Rate": self.curriculum_window_near_goal_rate.detach(),
+                "Success_Final_Time_Mean": self.curriculum_window_success_final_time.detach(),
                 "Target_Speed": self._mean_detached(target_speed),
+                "Desired_Speed_Near_Goal": self._mean_detached(desired_speed),
                 "Actual_Along_Goal": self._mean_detached(actual_along_goal),
-                "Progress": self._mean_detached(progress),
+                "Progress_Step": self._mean_detached(progress_clamped),
                 "Progress_EMA": self._mean_detached(self.progress_ema),
+                "Initial_Goal_Distance": self._mean_detached(self.initial_goal_distance),
                 "Distance_To_Goal": self._mean_detached(dist_to_goal),
+                "Distance_Reduction_Ratio": self._mean_detached(distance_reduction_ratio),
                 "Success_Radius": self._mean_detached(success_radius),
                 "Heading_Error": self._mean_detached(torch.abs(rel_angle)),
                 "Heading_Cos": self._mean_detached(heading_cos),
+                "Heading_Reward_Gate": self._mean_detached(heading_reward_gate),
+                "Forward_Ratio": self._mean_detached(forward_ratio),
+                "Lateral_Vel_To_Goal": self._mean_detached(lateral_vel_to_goal),
+                "Speed_Ratio": self._mean_detached(speed_ratio),
+                "Stuck_Timer_Mean": self._mean_detached(stuck_timer_norm),
                 "Collision_Risk": self._mean_detached(collision_risk),
                 "Front_Clearance_Norm": self._mean_detached(front_clearance_norm),
                 "Min_Signed_Distance": self._mean_detached(min_signed),

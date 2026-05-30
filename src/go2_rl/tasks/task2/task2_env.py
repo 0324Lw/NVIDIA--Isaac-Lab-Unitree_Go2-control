@@ -714,8 +714,10 @@ class Go2Task2Env(gym.Env):
     ) -> torch.Tensor:
         xy_w = torch.as_tensor(xy_w, dtype=torch.float32, device=self.device)
 
+        squeeze_points = False
         if xy_w.ndim == 2:
             xy_w = xy_w.unsqueeze(1)
+            squeeze_points = True
 
         if terrain_types is None:
             terrain_types = self.env_terrain_types
@@ -732,7 +734,23 @@ class Go2Task2Env(gym.Env):
         )
 
         local_xy = xy_w - origins[:, None, 0:2]
-        return self.world._analytical_terrain_height(local_xy, terrain_types, terrain_levels)
+
+        local_height = self.world._analytical_terrain_height(
+            local_xy,
+            terrain_types,
+            terrain_levels,
+        )
+
+        # 关键修复：
+        # _analytical_terrain_height() 返回的是局部地形高度；
+        # root_pos_w / foot_pos_w 是世界坐标；
+        # 因此必须加上 terrain origin.z，保证 base_height / foot_height 使用同一世界坐标系。
+        world_height = local_height + origins[:, None, 2]
+
+        if squeeze_points:
+            return world_height.squeeze(1)
+
+        return world_height
 
     def _get_foot_contact(self) -> Tuple[torch.Tensor, torch.Tensor]:
         data = self.contact.data
@@ -873,31 +891,69 @@ class Go2Task2Env(gym.Env):
         foot_vel_xy = self.robot.data.body_lin_vel_w[:, self.foot_body_ids_t, :2]
 
         cmd = self.smoothed_cmd
-        cmd_xy_norm = torch.norm(cmd[:, :2], dim=-1)
-        cmd_xy_norm_safe = torch.clamp(cmd_xy_norm, min=1e-6)
+        cmd_xy = cmd[:, :2]
+        cmd_xy_norm = torch.norm(cmd_xy, dim=-1)
+        cmd_xy_norm_safe = torch.clamp(cmd_xy_norm, min=1.0e-6)
         cmd_yaw_abs = torch.abs(cmd[:, 2])
 
-        move_gate = ((cmd_xy_norm > 0.05) | (cmd_yaw_abs > 0.08)).float()
+        lin_move_gate = (cmd_xy_norm > float(self.cfg.reward_cmd_lin_move_threshold)).float()
+        yaw_move_gate = (cmd_yaw_abs > float(self.cfg.reward_cmd_yaw_move_threshold)).float()
+        move_gate = torch.clamp(lin_move_gate + yaw_move_gate, 0.0, 1.0)
         stand_gate = 1.0 - move_gate
 
-        actual_along_cmd = torch.sum(base_lin_vel[:, :2] * cmd[:, :2], dim=-1) / cmd_xy_norm_safe
-        target_speed = torch.clamp(cmd_xy_norm, min=0.08)
+        cmd_dir = cmd_xy / cmd_xy_norm_safe.unsqueeze(-1)
+        actual_along_cmd = torch.sum(base_lin_vel[:, :2] * cmd_dir, dim=-1)
+        target_speed = torch.clamp(cmd_xy_norm, min=float(self.cfg.reward_target_speed_min))
 
-        r_cmd_speed = move_gate * torch.exp(
-            -4.0 * torch.square(torch.clamp(actual_along_cmd / target_speed - 1.0, min=-2.0, max=2.0))
+        raw_speed_ratio = actual_along_cmd / target_speed
+        speed_ratio_clamped = torch.clamp(
+            raw_speed_ratio,
+            min=float(self.cfg.reward_speed_ratio_min),
+            max=float(self.cfg.reward_speed_ratio_max),
         )
+        speed_gate = torch.clamp(speed_ratio_clamped, min=0.0, max=1.0) * lin_move_gate
 
-        p_under_speed = -move_gate * torch.clamp(0.65 * target_speed - actual_along_cmd, min=0.0)
-        p_over_speed = -move_gate * torch.clamp(actual_along_cmd - 1.45 * target_speed, min=0.0)
+        under_ratio = torch.clamp(
+            (target_speed - actual_along_cmd) / target_speed,
+            min=0.0,
+            max=float(self.cfg.reward_under_ratio_max),
+        ) * lin_move_gate
+
+        over_ratio = torch.clamp(
+            (actual_along_cmd - float(self.cfg.reward_over_speed_ratio) * target_speed) / target_speed,
+            min=0.0,
+            max=float(self.cfg.reward_over_ratio_max),
+        ) * lin_move_gate
+
+        reverse_ratio = torch.clamp(
+            -actual_along_cmd / target_speed,
+            min=0.0,
+            max=float(self.cfg.reward_reverse_ratio_max),
+        ) * lin_move_gate
 
         lin_err = torch.square(vx - cmd[:, 0]) + torch.square(vy - cmd[:, 1])
         yaw_err = torch.square(wz - cmd[:, 2])
 
-        r_cmd_lin = torch.exp(-float(self.cfg.sigma_cmd_lin) * lin_err)
-        r_cmd_yaw = torch.exp(-float(self.cfg.sigma_cmd_yaw) * yaw_err)
+        r_cmd_lin = torch.exp(-float(self.cfg.reward_cmd_lin_sigma) * lin_err)
+        r_cmd_yaw = torch.exp(-float(self.cfg.reward_cmd_yaw_sigma) * yaw_err)
+
+        r_cmd_speed = lin_move_gate * torch.exp(
+            -float(self.cfg.reward_cmd_speed_sigma)
+            * torch.square(
+                torch.clamp(
+                    raw_speed_ratio - 1.0,
+                    min=-float(self.cfg.reward_cmd_speed_error_clip),
+                    max=float(self.cfg.reward_cmd_speed_error_clip),
+                )
+            )
+        )
+
+        p_under_speed = -torch.square(under_ratio)
+        p_over_speed = -torch.square(over_ratio)
+        p_reverse = -torch.square(reverse_ratio)
 
         r_stand = torch.exp(
-            -float(self.cfg.sigma_stand)
+            -float(self.cfg.reward_stand_sigma)
             * (
                 torch.square(vx)
                 + torch.square(vy)
@@ -905,31 +961,50 @@ class Go2Task2Env(gym.Env):
                 + 0.5 * torch.square(vz)
             )
         )
+        r_stand_yaw = torch.exp(-float(self.cfg.reward_stand_sigma) * torch.square(wz))
 
-        r_cmd_lin_final = move_gate * r_cmd_lin + stand_gate * r_stand
-        r_cmd_yaw_final = move_gate * r_cmd_yaw + stand_gate * torch.exp(
-            -float(self.cfg.sigma_stand) * torch.square(wz)
-        )
+        # 移动命令下，线速度奖励必须受到 speed_gate 约束；
+        # zero command 下仍保留站立奖励，避免 stage0 没有学习信号。
+        r_cmd_lin_gated = lin_move_gate * r_cmd_lin * speed_gate + stand_gate * r_stand
 
-        r_phase_contact = (1.0 - torch.mean(torch.abs(contact - ref_contact), dim=-1)) * move_gate
+        yaw_speed_gate = float(self.cfg.reward_yaw_gate_min) + (
+            1.0 - float(self.cfg.reward_yaw_gate_min)
+        ) * speed_gate
+        r_cmd_yaw_gated = move_gate * r_cmd_yaw * yaw_speed_gate + stand_gate * r_stand_yaw
+
+        phase_error = torch.mean(torch.abs(contact - ref_contact), dim=-1)
+        r_phase_contact = (1.0 - phase_error) * move_gate
 
         first_contact = (contact > 0.5) & (self.prev_foot_contact < 0.5)
         self.feet_air_time += self.dt
+
         r_air_time = (
             torch.sum(
-                torch.clamp(self.feet_air_time - float(self.cfg.air_time_target), min=0.0, max=0.5)
+                torch.clamp(
+                    self.feet_air_time - float(self.cfg.air_time_target),
+                    min=0.0,
+                    max=float(self.cfg.reward_air_time_clip),
+                )
                 * first_contact.float(),
                 dim=-1,
             )
             * move_gate
         )
-        self.feet_air_time = torch.where(contact > 0.5, torch.zeros_like(self.feet_air_time), self.feet_air_time)
+
+        self.feet_air_time = torch.where(
+            contact > 0.5,
+            torch.zeros_like(self.feet_air_time),
+            self.feet_air_time,
+        )
         self.prev_foot_contact.copy_(contact)
 
         r_clearance = (
             torch.mean(
                 (1.0 - contact)
-                * torch.exp(-20.0 * torch.abs(foot_height - float(self.cfg.foot_clearance_target))),
+                * torch.exp(
+                    -float(self.cfg.reward_clearance_sigma)
+                    * torch.abs(foot_height - float(self.cfg.foot_clearance_target))
+                ),
                 dim=-1,
             )
             * move_gate
@@ -937,23 +1012,35 @@ class Go2Task2Env(gym.Env):
 
         progress_x = root_pos[:, 0] - self.terrain_curriculum.start_x
         r_terrain_progress = move_gate * torch.clamp(
-            progress_x / max(float(self.cfg.terrain_cfg.success_distance), 1e-6),
+            progress_x / max(float(self.cfg.terrain_cfg.success_distance), 1.0e-6),
             min=-1.0,
             max=1.0,
         )
 
-        p_double_contact = -move_gate * torch.clamp(contact_count - 2.4, min=0.0)
+        p_double_contact = -move_gate * torch.clamp(
+            contact_count - float(self.cfg.reward_double_contact_threshold),
+            min=0.0,
+        )
 
         raw_foot_slip = torch.sum(torch.sum(torch.square(foot_vel_xy), dim=-1) * contact, dim=-1)
-        p_foot_slip = -torch.clamp(raw_foot_slip, max=8.0)
+        p_foot_slip = -torch.clamp(
+            raw_foot_slip,
+            max=float(self.cfg.reward_foot_slip_clip),
+        )
 
         r_upright = (1.0 - projected_gravity[:, 2]) * 0.5
 
         h_err = torch.square(base_height - float(self.cfg.target_height))
-        r_height = torch.exp(-float(self.cfg.sigma_height) * h_err)
+        r_height = torch.exp(-float(self.cfg.reward_height_sigma) * h_err)
 
-        p_base_ang = -torch.clamp(torch.square(wx) + torch.square(wy), max=6.0)
-        p_base_acc = -torch.clamp(torch.sum(torch.square(base_acc), dim=-1), max=30.0)
+        p_base_ang = -torch.clamp(
+            torch.square(wx) + torch.square(wy),
+            max=float(self.cfg.reward_base_ang_clip),
+        )
+        p_base_acc = -torch.clamp(
+            torch.sum(torch.square(base_acc), dim=-1),
+            max=float(self.cfg.reward_base_acc_clip),
+        )
         p_z_vel = -torch.abs(vz)
 
         p_default_pose = -torch.mean(torch.square(q_err), dim=-1)
@@ -961,8 +1048,8 @@ class Go2Task2Env(gym.Env):
         lower_margin = q - self.joint_lower
         upper_margin = self.joint_upper - q
         p_joint_limit = -torch.mean(
-            torch.square(torch.clamp(0.04 - lower_margin, min=0.0))
-            + torch.square(torch.clamp(0.04 - upper_margin, min=0.0)),
+            torch.square(torch.clamp(float(self.cfg.reward_joint_limit_margin) - lower_margin, min=0.0))
+            + torch.square(torch.clamp(float(self.cfg.reward_joint_limit_margin) - upper_margin, min=0.0)),
             dim=-1,
         )
 
@@ -971,36 +1058,84 @@ class Go2Task2Env(gym.Env):
 
         torques = getattr(self.robot.data, "applied_torque", torch.zeros_like(self.robot.data.joint_vel))
         tau = torques[:, self.action_joint_ids_t]
-        p_torque = -torch.clamp(torch.mean(torch.square(tau), dim=-1), max=40.0)
-        p_energy = -torch.clamp(torch.mean(torch.abs(tau * qd), dim=-1), max=20.0)
+        p_torque = -torch.clamp(
+            torch.mean(torch.square(tau), dim=-1),
+            max=float(self.cfg.reward_torque_clip),
+        )
+        p_energy = -torch.clamp(
+            torch.mean(torch.abs(tau * qd), dim=-1),
+            max=float(self.cfg.reward_energy_clip),
+        )
 
         r_alive = torch.ones_like(vx)
 
+        # ------------------------------------------------------------------
+        # Reward-V2.1：
+        # 所有组间权重、组内权重、比例惩罚、低速静态接触抑制都来自 config。
+        # ------------------------------------------------------------------
+        r_command_task = (
+            float(self.cfg.reward_cmd_w_lin_gated) * r_cmd_lin_gated
+            + float(self.cfg.reward_cmd_w_speed) * r_cmd_speed
+            + float(self.cfg.reward_cmd_w_yaw_gated) * r_cmd_yaw_gated
+            + float(self.cfg.reward_cmd_w_under) * p_under_speed
+            + float(self.cfg.reward_cmd_w_over) * p_over_speed
+            + float(self.cfg.reward_cmd_w_reverse) * p_reverse
+        )
+
+        r_locomotion_quality = (
+            float(self.cfg.reward_loco_w_air_time) * r_air_time
+            + float(self.cfg.reward_loco_w_clearance) * r_clearance
+            + float(self.cfg.reward_loco_w_phase) * r_phase_contact
+        )
+
+        k_curriculum = self._curriculum_k()
+        if k_curriculum < float(self.cfg.reward_contact_scale_k1):
+            contact_weight_scale = float(self.cfg.reward_contact_scale_early)
+        elif k_curriculum < float(self.cfg.reward_contact_scale_k2):
+            contact_weight_scale = float(self.cfg.reward_contact_scale_middle)
+        else:
+            contact_weight_scale = float(self.cfg.reward_contact_scale_late)
+
+        low_speed_gap = torch.clamp(
+            float(self.cfg.reward_low_speed_static_threshold) - speed_gate,
+            min=0.0,
+            max=float(self.cfg.reward_low_speed_static_threshold),
+        )
+        low_speed_static_scale = 1.0 + float(self.cfg.reward_low_speed_static_gain) * (
+            low_speed_gap / max(float(self.cfg.reward_low_speed_static_threshold), 1.0e-6)
+        )
+
+        p_double_contact_scaled = p_double_contact * low_speed_static_scale
+
+        p_contact_quality = (
+            float(self.cfg.reward_contact_w_foot_slip) * p_foot_slip
+            + float(self.cfg.reward_contact_w_double_contact) * p_double_contact_scaled
+        )
+
+        r_stability_quality = (
+            float(self.cfg.reward_stability_w_upright) * r_upright
+            + float(self.cfg.reward_stability_w_height) * r_height
+            + float(self.cfg.reward_stability_w_base_ang) * p_base_ang
+            + float(self.cfg.reward_stability_w_z_vel) * p_z_vel
+            + float(self.cfg.reward_stability_w_base_acc) * p_base_acc
+            + float(self.cfg.reward_stability_w_stand) * r_stand * stand_gate
+        )
+
+        p_control_regularization = (
+            float(self.cfg.reward_control_w_action_rate) * p_action_rate
+            + float(self.cfg.reward_control_w_action_mag) * p_action_mag
+            + float(self.cfg.reward_control_w_torque) * p_torque
+            + float(self.cfg.reward_control_w_energy) * p_energy
+            + float(self.cfg.reward_control_w_joint_limit) * p_joint_limit
+            + float(self.cfg.reward_control_w_default_pose) * p_default_pose
+        )
+
         continuous_raw = (
-            float(self.cfg.w_cmd_lin) * r_cmd_lin_final
-            + float(self.cfg.w_cmd_yaw) * r_cmd_yaw_final
-            + float(self.cfg.w_cmd_speed) * r_cmd_speed
-            + float(self.cfg.w_under_speed) * p_under_speed
-            + float(self.cfg.w_over_speed) * p_over_speed
-            + float(self.cfg.w_stand_still) * r_stand * stand_gate
-            + float(self.cfg.w_phase_contact) * r_phase_contact
-            + float(self.cfg.w_air_time) * r_air_time
-            + float(self.cfg.w_clearance) * r_clearance
-            + float(self.cfg.w_terrain_progress) * r_terrain_progress
-            + float(self.cfg.w_double_contact) * p_double_contact
-            + float(self.cfg.w_foot_slip) * p_foot_slip
-            + float(self.cfg.w_upright) * r_upright
-            + float(self.cfg.w_height) * r_height
-            + float(self.cfg.w_base_ang_vel) * p_base_ang
-            + float(self.cfg.w_base_acc) * p_base_acc
-            + float(self.cfg.w_z_vel) * p_z_vel
-            + float(self.cfg.w_default_pose) * p_default_pose
-            + float(self.cfg.w_alive) * r_alive
-            + float(self.cfg.w_joint_limit) * p_joint_limit
-            + float(self.cfg.w_action_rate) * p_action_rate
-            + float(self.cfg.w_action_mag) * p_action_mag
-            + float(self.cfg.w_torque) * p_torque
-            + float(self.cfg.w_energy) * p_energy
+            float(self.cfg.reward_group_cmd) * r_command_task
+            + float(self.cfg.reward_group_locomotion) * r_locomotion_quality
+            + float(self.cfg.reward_group_contact) * contact_weight_scale * p_contact_quality
+            + float(self.cfg.reward_group_stability) * r_stability_quality
+            + float(self.cfg.reward_group_control) * p_control_regularization
         )
 
         continuous = torch.clamp(
@@ -1011,13 +1146,20 @@ class Go2Task2Env(gym.Env):
 
         joint_vel_abs_max = torch.abs(self.robot.data.joint_vel).max(dim=-1)[0]
 
+        fall_low = base_height < float(self.cfg.fall_height)
+        fall_high = base_height > float(self.cfg.jump_height)
+        fall_bad_orientation = torch.norm(projected_gravity[:, :2], dim=-1) > float(self.cfg.bad_orientation_xy)
+        fall_nonfinite_height = ~torch.isfinite(base_height)
+        fall_nonfinite_joint = ~torch.isfinite(self.robot.data.joint_pos).all(dim=-1)
+        fall_joint_vel = joint_vel_abs_max > float(self.cfg.max_joint_vel_abs)
+
         is_fallen = (
-            (base_height < float(self.cfg.fall_height))
-            | (base_height > float(self.cfg.jump_height))
-            | (torch.norm(projected_gravity[:, :2], dim=-1) > float(self.cfg.bad_orientation_xy))
-            | (~torch.isfinite(base_height))
-            | (~torch.isfinite(self.robot.data.joint_pos).all(dim=-1))
-            | (joint_vel_abs_max > float(self.cfg.max_joint_vel_abs))
+            fall_low
+            | fall_high
+            | fall_bad_orientation
+            | fall_nonfinite_height
+            | fall_nonfinite_joint
+            | fall_joint_vel
         )
 
         event_fall = torch.where(
@@ -1029,7 +1171,7 @@ class Go2Task2Env(gym.Env):
         reward_raw = continuous + event_fall
 
         projected_return = self.episode_return + reward_raw
-        no_event = event_fall.abs() < 1e-6
+        no_event = event_fall.abs() < 1.0e-6
 
         reward = torch.where(
             (projected_return > float(self.cfg.episode_return_abs_limit)) & no_event,
@@ -1049,33 +1191,147 @@ class Go2Task2Env(gym.Env):
 
         info = {
             "reward_components": {
-                "R_Cmd_Lin": self._mean_detached(float(self.cfg.w_cmd_lin) * r_cmd_lin_final),
-                "R_Cmd_Yaw": self._mean_detached(float(self.cfg.w_cmd_yaw) * r_cmd_yaw_final),
-                "R_Cmd_Speed": self._mean_detached(float(self.cfg.w_cmd_speed) * r_cmd_speed),
-                "P_Under_Speed": self._mean_detached(float(self.cfg.w_under_speed) * p_under_speed),
-                "P_Over_Speed": self._mean_detached(float(self.cfg.w_over_speed) * p_over_speed),
-                "R_Stand_Still": self._mean_detached(float(self.cfg.w_stand_still) * r_stand * stand_gate),
-                "R_Phase_Contact": self._mean_detached(float(self.cfg.w_phase_contact) * r_phase_contact),
-                "R_Air_Time": self._mean_detached(float(self.cfg.w_air_time) * r_air_time),
-                "R_Clearance": self._mean_detached(float(self.cfg.w_clearance) * r_clearance),
-                "R_Terrain_Progress": self._mean_detached(float(self.cfg.w_terrain_progress) * r_terrain_progress),
-                "P_Double_Contact": self._mean_detached(float(self.cfg.w_double_contact) * p_double_contact),
-                "P_Foot_Slip": self._mean_detached(float(self.cfg.w_foot_slip) * p_foot_slip),
-                "R_Upright": self._mean_detached(float(self.cfg.w_upright) * r_upright),
-                "R_Height": self._mean_detached(float(self.cfg.w_height) * r_height),
-                "P_Base_Ang": self._mean_detached(float(self.cfg.w_base_ang_vel) * p_base_ang),
-                "P_Base_Acc": self._mean_detached(float(self.cfg.w_base_acc) * p_base_acc),
-                "P_Z_Vel": self._mean_detached(float(self.cfg.w_z_vel) * p_z_vel),
-                "P_Default_Pose": self._mean_detached(float(self.cfg.w_default_pose) * p_default_pose),
-                "R_Alive": self._mean_detached(float(self.cfg.w_alive) * r_alive),
-                "P_Joint_Limit": self._mean_detached(float(self.cfg.w_joint_limit) * p_joint_limit),
-                "P_Action_Rate": self._mean_detached(float(self.cfg.w_action_rate) * p_action_rate),
-                "P_Action_Mag": self._mean_detached(float(self.cfg.w_action_mag) * p_action_mag),
-                "P_Torque": self._mean_detached(float(self.cfg.w_torque) * p_torque),
-                "P_Energy": self._mean_detached(float(self.cfg.w_energy) * p_energy),
+                "R_Cmd_Lin": self._mean_detached(
+                    float(self.cfg.reward_group_cmd)
+                    * float(self.cfg.reward_cmd_w_lin_gated)
+                    * r_cmd_lin_gated
+                ),
+                "R_Cmd_Yaw": self._mean_detached(
+                    float(self.cfg.reward_group_cmd)
+                    * float(self.cfg.reward_cmd_w_yaw_gated)
+                    * r_cmd_yaw_gated
+                ),
+                "R_Cmd_Speed": self._mean_detached(
+                    float(self.cfg.reward_group_cmd)
+                    * float(self.cfg.reward_cmd_w_speed)
+                    * r_cmd_speed
+                ),
+                "P_Under_Speed": self._mean_detached(
+                    float(self.cfg.reward_group_cmd)
+                    * float(self.cfg.reward_cmd_w_under)
+                    * p_under_speed
+                ),
+                "P_Over_Speed": self._mean_detached(
+                    float(self.cfg.reward_group_cmd)
+                    * float(self.cfg.reward_cmd_w_over)
+                    * p_over_speed
+                ),
+                "P_Reverse": self._mean_detached(
+                    float(self.cfg.reward_group_cmd)
+                    * float(self.cfg.reward_cmd_w_reverse)
+                    * p_reverse
+                ),
+                "R_Stand_Still": self._mean_detached(
+                    float(self.cfg.reward_group_stability)
+                    * float(self.cfg.reward_stability_w_stand)
+                    * r_stand
+                    * stand_gate
+                ),
+                "R_Phase_Contact": self._mean_detached(
+                    float(self.cfg.reward_group_locomotion)
+                    * float(self.cfg.reward_loco_w_phase)
+                    * r_phase_contact
+                ),
+                "R_Air_Time": self._mean_detached(
+                    float(self.cfg.reward_group_locomotion)
+                    * float(self.cfg.reward_loco_w_air_time)
+                    * r_air_time
+                ),
+                "R_Clearance": self._mean_detached(
+                    float(self.cfg.reward_group_locomotion)
+                    * float(self.cfg.reward_loco_w_clearance)
+                    * r_clearance
+                ),
+                "R_Terrain_Progress": self._mean_detached(r_terrain_progress),
+                "P_Double_Contact": self._mean_detached(
+                    float(self.cfg.reward_group_contact)
+                    * contact_weight_scale
+                    * float(self.cfg.reward_contact_w_double_contact)
+                    * p_double_contact_scaled
+                ),
+                "P_Foot_Slip": self._mean_detached(
+                    float(self.cfg.reward_group_contact)
+                    * contact_weight_scale
+                    * float(self.cfg.reward_contact_w_foot_slip)
+                    * p_foot_slip
+                ),
+                "R_Upright": self._mean_detached(
+                    float(self.cfg.reward_group_stability)
+                    * float(self.cfg.reward_stability_w_upright)
+                    * r_upright
+                ),
+                "R_Height": self._mean_detached(
+                    float(self.cfg.reward_group_stability)
+                    * float(self.cfg.reward_stability_w_height)
+                    * r_height
+                ),
+                "P_Base_Ang": self._mean_detached(
+                    float(self.cfg.reward_group_stability)
+                    * float(self.cfg.reward_stability_w_base_ang)
+                    * p_base_ang
+                ),
+                "P_Base_Acc": self._mean_detached(
+                    float(self.cfg.reward_group_stability)
+                    * float(self.cfg.reward_stability_w_base_acc)
+                    * p_base_acc
+                ),
+                "P_Z_Vel": self._mean_detached(
+                    float(self.cfg.reward_group_stability)
+                    * float(self.cfg.reward_stability_w_z_vel)
+                    * p_z_vel
+                ),
+                "P_Default_Pose": self._mean_detached(
+                    float(self.cfg.reward_group_control)
+                    * float(self.cfg.reward_control_w_default_pose)
+                    * p_default_pose
+                ),
+                "R_Alive": self._mean_detached(r_alive),
+                "P_Joint_Limit": self._mean_detached(
+                    float(self.cfg.reward_group_control)
+                    * float(self.cfg.reward_control_w_joint_limit)
+                    * p_joint_limit
+                ),
+                "P_Action_Rate": self._mean_detached(
+                    float(self.cfg.reward_group_control)
+                    * float(self.cfg.reward_control_w_action_rate)
+                    * p_action_rate
+                ),
+                "P_Action_Mag": self._mean_detached(
+                    float(self.cfg.reward_group_control)
+                    * float(self.cfg.reward_control_w_action_mag)
+                    * p_action_mag
+                ),
+                "P_Torque": self._mean_detached(
+                    float(self.cfg.reward_group_control)
+                    * float(self.cfg.reward_control_w_torque)
+                    * p_torque
+                ),
+                "P_Energy": self._mean_detached(
+                    float(self.cfg.reward_group_control)
+                    * float(self.cfg.reward_control_w_energy)
+                    * p_energy
+                ),
                 "Continuous": self._mean_detached(continuous),
                 "Event_Fall": self._mean_detached(event_fall),
                 "Total": self._mean_detached(reward),
+            },
+            "reward_groups": {
+                "R_Command_Task": self._mean_detached(float(self.cfg.reward_group_cmd) * r_command_task),
+                "R_Locomotion_Quality": self._mean_detached(
+                    float(self.cfg.reward_group_locomotion) * r_locomotion_quality
+                ),
+                "P_Contact_Quality": self._mean_detached(
+                    float(self.cfg.reward_group_contact) * contact_weight_scale * p_contact_quality
+                ),
+                "R_Stability_Quality": self._mean_detached(
+                    float(self.cfg.reward_group_stability) * r_stability_quality
+                ),
+                "P_Control_Regularization": self._mean_detached(
+                    float(self.cfg.reward_group_control) * p_control_regularization
+                ),
+                "Contact_Weight_Scale": self._float_tensor(contact_weight_scale, self.device),
+                "Reward_Clip": self._float_tensor(float(self.cfg.continuous_reward_clip), self.device),
+                "R_Terrain_Progress_Aux_Disabled": self._float_tensor(0.0, self.device),
             },
             "events": {
                 "Fall_Rate": self._mean_detached(is_fallen.float()),
@@ -1090,7 +1346,14 @@ class Go2Task2Env(gym.Env):
                 "Actual_Vx": self._mean_detached(vx),
                 "Actual_Vy": self._mean_detached(vy),
                 "Actual_Wz": self._mean_detached(wz),
-                "Actual_Along_Cmd": self._mean_detached(actual_along_cmd * move_gate),
+                "Actual_Along_Cmd": self._mean_detached(actual_along_cmd * lin_move_gate),
+                "Target_Speed": self._mean_detached(target_speed * lin_move_gate),
+                "Speed_Ratio": self._mean_detached(speed_ratio_clamped * lin_move_gate),
+                "Speed_Gate": self._mean_detached(speed_gate),
+                "Under_Ratio": self._mean_detached(under_ratio),
+                "Over_Ratio": self._mean_detached(over_ratio),
+                "Reverse_Ratio": self._mean_detached(reverse_ratio),
+                "Low_Speed_Static_Scale": self._mean_detached(low_speed_static_scale * lin_move_gate),
                 "Lin_Error": self._mean_detached(lin_err),
                 "Yaw_Error": self._mean_detached(yaw_err),
                 "Base_Height": self._mean_detached(base_height),
@@ -1119,14 +1382,21 @@ class Go2Task2Env(gym.Env):
                 "Reward_Max": reward.detach().max(),
                 "Continuous_Min": continuous.detach().min(),
                 "Continuous_Max": continuous.detach().max(),
+                "Continuous_Raw_Min": continuous_raw.detach().min(),
+                "Continuous_Raw_Max": continuous_raw.detach().max(),
                 "Base_Height_Min": base_height.detach().min(),
                 "Base_Height_Max": base_height.detach().max(),
                 "JointVel_Max": joint_vel_abs_max.detach().max(),
+                "Fall_Reason_Low": self._mean_detached(fall_low.float()),
+                "Fall_Reason_High": self._mean_detached(fall_high.float()),
+                "Fall_Reason_Bad_Orientation": self._mean_detached(fall_bad_orientation.float()),
+                "Fall_Reason_Nonfinite_Height": self._mean_detached(fall_nonfinite_height.float()),
+                "Fall_Reason_Nonfinite_Joint": self._mean_detached(fall_nonfinite_joint.float()),
+                "Fall_Reason_JointVel": self._mean_detached(fall_joint_vel.float()),
             },
         }
 
         return reward, terminated, truncated, info
-
 
 # Backward-compatible aliases for older local scripts.
 QuadrupedTask2Env = Go2Task2Env

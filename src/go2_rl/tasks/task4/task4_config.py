@@ -60,7 +60,7 @@ class Task4Config:
     env_spacing: float = 3.0
 
     # ----------------------------- Curriculum -----------------------------
-    curriculum_total_steps: int = 400_000_000
+    curriculum_total_steps: int = 600_000_000
 
     # stage 0: clean locomotion
     # stage 1: light noise + friction + weak push
@@ -69,6 +69,8 @@ class Task4Config:
     # stage 4: motor degradation
     # stage 5: full robust Sim2Real
     stage_thresholds: Tuple[float, ...] = (0.0, 0.10, 0.24, 0.42, 0.62, 0.80)
+    # -1 表示使用正常 curriculum；0~5 可用于 Stage 固定训练/诊断。
+    force_stage: int = -1
 
     cmd_vx_ranges: Tuple[Tuple[float, float], ...] = (
         (0.00, 0.25),
@@ -207,6 +209,17 @@ class Task4Config:
     w_cmd_lin: float = 0.85
     w_cmd_yaw: float = 0.20
     w_lateral_vel: float = 0.20
+    # Task4-V1.1: 移动命令下的显式前进/欠速约束。
+    # 目标是防止“站稳活到 timeout”被误当成速度跟踪成功。
+    w_forward_ratio: float = 0.30
+    w_under_speed: float = 0.30
+    required_speed_ratio: float = 0.50
+    move_cmd_threshold: float = 0.08
+    cmd_speed_min: float = 0.05
+    cmd_lin_speed_gate_ref: float = 0.50
+    cmd_lin_speed_gate_floor: float = 0.25
+    stability_speed_gate_ref: float = 0.50
+    stability_speed_gate_floor: float = 0.40
 
     # B. Recovery
     w_tracking_recovery: float = 0.30
@@ -250,6 +263,14 @@ class Task4Config:
 
     continuous_reward_clip: float = 4.0
     episode_return_abs_limit: float = 1500.0
+
+    # ----------------------------- Tracking success metrics -----------------------------
+    # 这些阈值只用于日志/事件成功定义，不改变 observation 维度。
+    tracking_success_speed_ratio: float = 0.50
+    tracking_success_yaw_error: float = 0.25
+    tracking_success_min_height: float = 0.24
+    tracking_success_max_height: float = 0.36
+    tracking_success_max_roll_pitch: float = 0.35
 
     # ----------------------------- Debug -----------------------------
     print_debug_info: bool = False
