@@ -1,3 +1,41 @@
+# Copyright (c) 2026
+# Unitree Go2 Common: skrl PPO 网络模型。
+#
+# 本文件定义 Unitree Go2 任务使用的 skrl PPO actor / critic 网络。
+# 本文件不启动 IsaacLab AppLauncher，也不创建训练环境。
+#
+# 网络结构:
+#   Go2Actor:
+#     Gaussian policy，默认隐藏层为 512 -> 256 -> 128；
+#     输出动作均值，并通过 log_std_parameter 提供对角高斯标准差。
+#
+#   Go2Critic:
+#     Deterministic value critic，默认隐藏层为 512 -> 256 -> 128；
+#     输入 state_space 对应的 critic observation，输出状态价值。
+#
+# 工程说明:
+#   compute() 同时兼容 skrl 输入字典中的 observations 和 states 字段。
+#   这样同一模型可以服务 actor-only 输入、asymmetric critic 输入以及不同 wrapper 返回格式。
+#
+# Unitree Go2 Common: skrl PPO network models.
+#
+# This file defines the skrl PPO actor / critic networks used by Unitree Go2
+# tasks. It does not launch IsaacLab AppLauncher or create training environments.
+#
+# Network structure:
+#   Go2Actor:
+#     Gaussian policy with default hidden layers 512 -> 256 -> 128;
+#     outputs action means and uses log_std_parameter for diagonal Gaussian std.
+#
+#   Go2Critic:
+#     Deterministic value critic with default hidden layers 512 -> 256 -> 128;
+#     takes critic observations from state_space and outputs state values.
+#
+# Engineering notes:
+#   compute() supports both observations and states keys from skrl input
+#   dictionaries. This keeps the same model compatible with actor-only inputs,
+#   asymmetric critic inputs, and different wrapper output layouts.
+
 from __future__ import annotations
 
 import torch
@@ -7,11 +45,7 @@ from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 
 
 class Go2Actor(GaussianMixin, Model):
-    """Gaussian actor for skrl PPO.
-
-    Compatible with the skrl PPO_CFG / StepTrainer format already verified
-    in the user's IsaacLab environment.
-    """
+    """Gaussian actor for skrl PPO."""
 
     def __init__(
         self,
