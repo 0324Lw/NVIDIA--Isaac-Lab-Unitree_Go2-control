@@ -334,7 +334,7 @@ def print_update(pbar, update_id, env_steps, total_steps, elapsed, num_envs, rol
         "\n".join(
             [
                 "\n" + "=" * 116,
-                f"📊 [Go2 Task2 skrl PPO 更新 {update_id}] 总步数: {env_steps:,} / {total_steps:,} | "
+                f"[UPDATE] [Go2 Task2 skrl PPO 更新 {update_id}] 总步数: {env_steps:,} / {total_steps:,} | "
                 f"环境 FPS: {stat['fps_env_steps']:,.0f} | LR: {lr:.3e}",
                 "=" * 116,
                 make_table("time / progress", stat),
@@ -496,7 +496,7 @@ def load_task1_actor_warm_start(models: Dict[str, Any], path: str, device: str, 
         return False
 
     print("\n" + "=" * 112)
-    print(f"🔁 尝试加载 Task1 actor warm-start: {path}")
+    print(f" 尝试加载 Task1 actor warm-start: {path}")
     print("=" * 112)
 
     try:
@@ -527,8 +527,8 @@ def load_task1_actor_warm_start(models: Dict[str, Any], path: str, device: str, 
             with torch.no_grad():
                 policy.log_std_parameter.fill_(float(pretrained_log_std))
 
-        print(f"✅ Task1 actor warm-start 完成: copied_policy_tensors={copied}/{total}")
-        print(f"✅ policy log_std 已设置为 {pretrained_log_std}")
+        print(f"[OK] Task1 actor warm-start 完成: copied_policy_tensors={copied}/{total}")
+        print(f"[OK] policy log_std 已设置为 {pretrained_log_std}")
         print("注意：Task2 critic 使用 terrain privileged obs，保持随机初始化。")
         return copied > 0
 
@@ -564,7 +564,7 @@ def load_task1_observation_normalizer(agent, path: str) -> None:
         try:
             state = torch.load(str(cand), map_location=getattr(preprocessor, "device", "cpu"))
             preprocessor.load_state_dict(state)
-            print(f"✅ 已加载 Task1 observation normalizer: {cand}")
+            print(f"[OK] 已加载 Task1 observation normalizer: {cand}")
             return
         except Exception as exc:
             print(f"[WARN] Task1 obs norm 加载失败: {cand} | {type(exc).__name__}: {exc}")
@@ -601,7 +601,7 @@ def main():
     log_dir = make_log_dir()
 
     print("\n" + "=" * 116)
-    print("🚀 Unitree Go2 Task2: Multi-Terrain / Multi-Material skrl PPO 训练启动")
+    print("[START] Unitree Go2 Task2: Multi-Terrain / Multi-Material skrl PPO 训练启动")
     print("=" * 116)
     print(f"[INFO] PROJECT_ROOT = {PROJECT_ROOT}")
     print(f"[INFO] log_dir      = {log_dir}")
@@ -740,12 +740,12 @@ def main():
         agents=agent,
     )
 
-    print("\n🔥 [Go2 Task2 skrl PPO 已点火]")
-    print("👉 训练目标：平地 locomotion -> 多地形 rough/slopes/stones/stairs -> 多材质鲁棒行走/奔跑")
-    print("👉 Actor 输入：87 维本体感觉 × 5 帧堆叠 = 435")
-    print("👉 Critic 输入：actor_stack 435 + terrain_priv 91 = 526")
-    print("👉 推荐流程：先 smoke，再 laptop 小规模，再 Windows 3090 放大并发。")
-    print("👉 日志重点：Fall_Rate / Actual_Vx-Cmd_Vx / Mean_Terrain_Level / Mean_Friction / P_Foot_Slip\n")
+    print("\n[RUN] [Go2 Task2 skrl PPO 已点火]")
+    print("[INFO] 训练目标：平地 locomotion -> 多地形 rough/slopes/stones/stairs -> 多材质鲁棒行走/奔跑")
+    print("[INFO] Actor 输入：87 维本体感觉 × 5 帧堆叠 = 435")
+    print("[INFO] Critic 输入：actor_stack 435 + terrain_priv 91 = 526")
+    print("[INFO] 推荐流程：先 smoke，再 laptop 小规模，再 Windows 3090 放大并发。")
+    print("[INFO] 日志重点：Fall_Rate / Actual_Vx-Cmd_Vx / Mean_Terrain_Level / Mean_Friction / P_Foot_Slip\n")
 
     last_save = resume_env_steps
     update_id = 0
@@ -817,7 +817,7 @@ def main():
                         agent.save(os.path.join(save_dir, "go2_task2_model.pt"))
                         save_normalizers(agent, save_dir)
                         save_train_metadata(save_dir, env_steps, num_envs, base_env, stacked_env)
-                        pbar.write(f"\n💾 [Go2 Task2 备份] 总步数: {env_steps:,} | 已保存至: {save_dir}\n")
+                        pbar.write(f"\n[SAVE] [Go2 Task2 备份] 总步数: {env_steps:,} | 已保存至: {save_dir}\n")
                     except Exception as exc:
                         pbar.write(f"\n[WARN] checkpoint 保存失败: {type(exc).__name__}: {exc}\n")
 
@@ -840,7 +840,7 @@ def main():
             agent.save(os.path.join(final_dir, "go2_task2_model.pt"))
             save_normalizers(agent, final_dir)
             save_train_metadata(final_dir, final_env_steps, num_envs, base_env, stacked_env)
-            print(f"✅ Go2 Task2 模型与归一化统计已保存至 {final_dir}")
+            print(f"[OK] Go2 Task2 模型与归一化统计已保存至 {final_dir}")
         except Exception as exc:
             print(f"[WARN] 保存最终模型失败: {type(exc).__name__}: {exc}")
 
@@ -854,7 +854,7 @@ def main():
         except Exception:
             pass
 
-        print("✅ Go2 Task2 skrl PPO 训练管线安全退出")
+        print("[OK] Go2 Task2 skrl PPO 训练管线安全退出")
 
 
 if __name__ == "__main__":

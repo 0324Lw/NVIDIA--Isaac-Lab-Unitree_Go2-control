@@ -130,11 +130,11 @@ def print_update(pbar, update_id, env_steps, total_steps, elapsed, num_envs, rol
         "learning_rate": lr,
     }
 
-    pbar.write(
+    print(
         "\n".join(
             [
                 "\n" + "=" * 112,
-                f"📊 [Go2 Task1 skrl PPO 更新 {update_id}] 总步数: {env_steps:,} / {total_steps:,} | "
+                f" [Go2 Task1 skrl PPO 更新 {update_id}] 总步数: {env_steps:,} / {total_steps:,} | "
                 f"环境 FPS: {stat['fps_env_steps']:,.0f} | LR: {lr:.3e}",
                 "=" * 112,
                 make_table("time / progress", stat),
@@ -245,7 +245,7 @@ def main():
     log_dir = make_log_dir()
 
     print("\n" + "=" * 112)
-    print("🚀 Unitree Go2 Task1: Flat Locomotion skrl PPO 训练启动")
+    print(" Unitree Go2 Task1: Flat Locomotion skrl PPO 训练启动")
     print("=" * 112)
     print(f"[INFO] PROJECT_ROOT = {PROJECT_ROOT}")
     print(f"[INFO] log_dir      = {log_dir}")
@@ -350,11 +350,11 @@ def main():
         agents=agent,
     )
 
-    print("\n🔥 [Go2 Task1 skrl PPO 已点火]")
-    print("👉 训练目标：平地站立 -> 原地踏步 -> 低速前进 -> 中速前进 -> yaw/lateral 全向控制")
-    print("👉 Actor/Critic 输入：87 维单帧观测 × 5 帧堆叠 = 435 维")
-    print("👉 动作：12 维 Go2 关节残差控制，环境内部做 EMA 平滑")
-    print("👉 日志重点：Fall_Rate / Episode_Length / Actual_Vx-Cmd_Vx / Contact_Count / P_Foot_Slip\n")
+    print("\n [Go2 Task1 skrl PPO 已点火]")
+    print(" 训练目标：平地站立 -> 原地踏步 -> 低速前进 -> 中速前进 -> yaw/lateral 全向控制")
+    print(" Actor/Critic 输入：87 维单帧观测 × 5 帧堆叠 = 435 维")
+    print(" 动作：12 维 Go2 关节残差控制，环境内部做 EMA 平滑")
+    print(" 日志重点：Fall_Rate / Episode_Length / Actual_Vx-Cmd_Vx / Contact_Count / P_Foot_Slip\n")
 
     last_save = 0
     update_id = 0
@@ -425,9 +425,9 @@ def main():
                         agent.save(os.path.join(save_dir, "go2_task1_model.pt"))
                         save_normalizers(agent, save_dir)
                         save_train_metadata(save_dir, env_steps, num_envs, base_env, env)
-                        pbar.write(f"\n💾 [Go2 Task1 备份] 总步数: {env_steps:,} | 已保存至: {save_dir}\n")
+                        print(f"\n [Go2 Task1 备份] 总步数: {env_steps:,} | 已保存至: {save_dir}\n")
                     except Exception as e:
-                        pbar.write(f"\n[WARN] checkpoint 保存失败: {e}\n")
+                        print(f"\n[WARN] checkpoint 保存失败: {e}\n")
 
     except KeyboardInterrupt:
         print("\n[WARN] 接收到手动中断信号，正在安全保存...")
@@ -443,7 +443,7 @@ def main():
             agent.save(os.path.join(final_dir, "go2_task1_model.pt"))
             save_normalizers(agent, final_dir)
             save_train_metadata(final_dir, total_env_steps, num_envs, base_env, env)
-            print(f"✅ Go2 Task1 模型与归一化统计已保存至 {final_dir}")
+            print(f" Go2 Task1 模型与归一化统计已保存至 {final_dir}")
         except Exception as e:
             print(f"[WARN] 保存最终模型失败: {e}")
 
@@ -457,7 +457,7 @@ def main():
         except Exception:
             pass
 
-        print("✅ Go2 Task1 skrl PPO 训练管线安全退出")
+        print(" Go2 Task1 skrl PPO 训练管线安全退出")
 
 
 if __name__ == "__main__":

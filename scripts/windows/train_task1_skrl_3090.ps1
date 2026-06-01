@@ -14,7 +14,24 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = "G:\rt_isaaclab_ws\projects\unitree_go2_isaaclab_rl"
+
+
+# Windows runtime compatibility.
+# Keep Python logs UTF-8 and unbuffered. This does not change training logic.
+try {
+    chcp 65001 | Out-Null
+    $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [Console]::InputEncoding = $Utf8NoBom
+    [Console]::OutputEncoding = $Utf8NoBom
+    $OutputEncoding = $Utf8NoBom
+} catch {
+}
+
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUNBUFFERED = "1"
+$env:PYTHONFAULTHANDLER = "1"
+$ProjectRoot = "G:\rt_isaaclab_ws\repos\NVIDIA--Isaac-Lab-Unitree_Go2-control"
 $IsaacLabRoot = "G:\rt_isaaclab_ws\repos\IsaacLab_v2.3.2"
 $PythonBat = Join-Path $IsaacLabRoot "_isaac_sim\python.bat"
 $TrainPy = Join-Path $ProjectRoot "src\go2_rl\tasks\task1\task1_train.py"
@@ -90,10 +107,23 @@ $ArgsList = @(
     "--headless",
     "--device", "$Device"
 )
+$TranscriptStarted = $false
+try {
+    Start-Transcript -Path $DriverLog -Force | Out-Null
+    $TranscriptStarted = $true
+} catch {
+    Write-Host "[WARN] Start-Transcript failed: $($_.Exception.Message)"
+}
 
-& $PythonBat @ArgsList 2>&1 | Tee-Object -FilePath $DriverLog
-
+& $PythonBat @ArgsList
 $exitCode = $LASTEXITCODE
+
+if ($TranscriptStarted) {
+    try {
+        Stop-Transcript | Out-Null
+    } catch {
+    }
+}
 Write-Host ""
 Write-Host "============================================================"
 Write-Host "Go2 Task1 Windows RTX 3090 training finished with exit code: $exitCode"

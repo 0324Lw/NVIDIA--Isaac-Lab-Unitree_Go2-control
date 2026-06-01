@@ -30,16 +30,22 @@ parser.add_argument("--steps", type=int, default=2000)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--start-k", type=float, default=1.0)
 parser.add_argument("--print-interval", type=int, default=100)
-parser.add_argument("--visualize", action="store_true", help="Open Isaac Sim GUI for lightweight visualization")
+parser.add_argument("--visualize", action="store_true", help="Compatibility flag; GUI is enabled by default")
+parser.add_argument("--headless-eval", action="store_true", help="Run model evaluation without Isaac Sim GUI")
 parser.add_argument("--no-close-on-exit", action="store_true", help="Debug only: do not explicitly call None if bool(getattr(args_cli, 'no_close_on_exit', False)) else simulation_app.close()")
 AppLauncher.add_app_launcher_args(parser)
 args_cli, _ = parser.parse_known_args()
-args_cli.headless = not bool(getattr(args_cli, 'visualize', False))
-# Default to stable headless evaluation. Use --visualize only for GUI.
-args_cli.headless = not bool(getattr(args_cli, 'visualize', False))
-# Model evaluation should open Isaac Sim GUI by default.
-# Do not force headless here. Pass --headless manually if needed.
 
+# Windows GUI eval policy:
+# Model evaluation opens Isaac Sim GUI by default.
+# Use --headless-eval only when a non-visual evaluation is explicitly needed.
+if bool(getattr(args_cli, "headless_eval", False)):
+    # GUI eval default: do not force headless=True here.
+    args_cli.headless = False
+else:
+    args_cli.headless = False
+if hasattr(args_cli, "enable_cameras"):
+    args_cli.enable_cameras = True
 simulation_app = AppLauncher(args_cli).app
 
 from skrl.envs.wrappers.torch import wrap_env
@@ -181,7 +187,18 @@ def main():
     set_seed(int(args_cli.seed))
 
     cfg = Task1Config()
-    cfg.num_envs = int(args_cli.num_envs)
+    # GUI/GIF evaluation should show exactly one robot.
+    # Headless evaluation can still use --num-envs for batch metrics.
+    _requested_num_envs = int(args_cli.num_envs)
+    _is_headless_eval = bool(getattr(args_cli, "headless_eval", False)) or bool(getattr(args_cli, "headless", False))
+    cfg.num_envs = _requested_num_envs if _is_headless_eval else 1
+
+    # Some config versions keep scene num_envs in a nested field.
+    # Keep those fields synchronized when they exist.
+    for _scene_attr in ("scene", "scene_cfg", "interactive_scene_cfg"):
+        _scene_obj = getattr(cfg, _scene_attr, None)
+        if _scene_obj is not None and hasattr(_scene_obj, "num_envs"):
+            _scene_obj.num_envs = int(cfg.num_envs)
     cfg.device = str(args_cli.device)
     cfg.debug_print_names = False
 
@@ -251,17 +268,13 @@ def main():
         with tqdm(total=int(args_cli.steps), desc="Go2 Task1 Model Test", dynamic_ncols=True, mininterval=0.5) as pbar:
             for step in range(int(args_cli.steps)):
                 with torch.no_grad():
-                    print(f"[DEBUG][eval step {step}] before direct_policy_action", flush=True)
                     actions = direct_policy_action(
                         agent,
                         states,
-                        debug=(step < 3),
+                        debug=False,
                         step=int(step),
                     )
-                    print(f"[DEBUG][eval step {step}] after direct_policy_action", flush=True)
-                    print(f"[DEBUG][eval step {step}] before env.step", flush=True) if step < 3 else None
                     states, rewards, terminated, truncated, _ = step_env(env, actions)
-                    print(f"[DEBUG][eval step {step}] after env.step", flush=True) if step < 3 else None
 
                 total_terminated += int(terminated.sum().item())
                 total_truncated += int(truncated.sum().item())
@@ -294,7 +307,7 @@ def main():
         env_steps = int(args_cli.steps) * int(env.num_envs)
         fps = env_steps / max(elapsed, 1e-6)
 
-        print("\n✅ Go2 Task1 model test rollout finished")
+        print("\n[OK] Go2 Task1 model test rollout finished")
         print(f"  env steps        : {env_steps:,}")
         print(f"  fps              : {fps:,.2f}")
         print(f"  total terminated : {total_terminated:,}")

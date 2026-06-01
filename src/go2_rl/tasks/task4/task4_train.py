@@ -301,11 +301,11 @@ def print_update(pbar, update_id, env_steps, total_steps, elapsed, num_envs, rol
         "learning_rate": lr,
     }
 
-    pbar.write(
+    print(
         "\n".join(
             [
                 "\n" + "=" * 124,
-                f"📊 [Go2 Task4 Teacher skrl PPO 更新 {update_id}] 总步数: {env_steps:,} / {total_steps:,} | "
+                f"[UPDATE] [Go2 Task4 Teacher skrl PPO 更新 {update_id}] 总步数: {env_steps:,} / {total_steps:,} | "
                 f"环境 FPS: {stat['fps_env_steps']:,.0f} | LR: {lr:.3e}",
                 "=" * 124,
                 make_table("time / progress", stat),
@@ -692,7 +692,7 @@ def load_actor_warm_start(models: Dict[str, Any], path: str, device: str, label:
         return False
 
     print("\n" + "=" * 124)
-    print(f"🔁 尝试加载 {label} actor warm-start 到 Task4 Teacher: {path}")
+    print(f" 尝试加载 {label} actor warm-start 到 Task4 Teacher: {path}")
     print("=" * 124)
 
     try:
@@ -710,7 +710,7 @@ def load_actor_warm_start(models: Dict[str, Any], path: str, device: str, label:
 
         log_std_ok = _try_set_policy_log_std(policy, float(pretrained_log_std))
 
-        print(f"✅ {label} actor -> Task4 Teacher warm-start 完成")
+        print(f"[OK] {label} actor -> Task4 Teacher warm-start 完成")
         print(f"   copied_policy_tensors = {report['copied']}/{report['total']}")
         print(f"   exact tensors         = {report['exact']}")
         print(f"   smart tensors         = {report['smart']}")
@@ -768,7 +768,7 @@ def main():
     log_dir = make_log_dir()
 
     print("\n" + "=" * 124)
-    print("🚀 Unitree Go2 Task4: Sim2Real / RMA Teacher skrl PPO 训练启动")
+    print("[START] Unitree Go2 Task4: Sim2Real / RMA Teacher skrl PPO 训练启动")
     print("=" * 124)
     print(f"[INFO] PROJECT_ROOT = {PROJECT_ROOT}")
     print(f"[INFO] log_dir      = {log_dir}")
@@ -935,12 +935,12 @@ def main():
         agents=agent,
     )
 
-    print("\n🔥 [Go2 Task4 Teacher skrl PPO 已点火]")
-    print("👉 当前训练的是 RMA Teacher，不是最终 Student 部署策略。")
-    print("👉 Policy 输入：actor_history 240 + privileged_obs 25 = 265。")
-    print("👉 Critic 输入：teacher_obs 265。")
-    print("👉 推荐 warm-start：优先 Task2，其次 Task1。")
-    print("👉 日志重点：Cmd_Vx / Actual_Vx / Tracking_Error / Fall_Rate / Push_Active_Rate / Motor_Strength_Min。\n")
+    print("\n[RUN] [Go2 Task4 Teacher skrl PPO 已点火]")
+    print("[INFO] 当前训练的是 RMA Teacher，不是最终 Student 部署策略。")
+    print("[INFO] Policy 输入：actor_history 240 + privileged_obs 25 = 265。")
+    print("[INFO] Critic 输入：teacher_obs 265。")
+    print("[INFO] 推荐 warm-start：优先 Task2，其次 Task1。")
+    print("[INFO] 日志重点：Cmd_Vx / Actual_Vx / Tracking_Error / Fall_Rate / Push_Active_Rate / Motor_Strength_Min。\n")
 
     last_save = resume_env_steps
     update_id = 0
@@ -1008,9 +1008,9 @@ def main():
                     save_dir = os.path.join(log_dir, f"checkpoint_{env_steps}")
                     try:
                         save_agent_checkpoint(agent, save_dir, env_steps, num_envs, base_env, teacher_env)
-                        pbar.write(f"\n💾 [Go2 Task4 Teacher 备份] 总步数: {env_steps:,} | 已保存至: {save_dir}\n")
+                        print(f"\n[SAVE] [Go2 Task4 Teacher 备份] 总步数: {env_steps:,} | 已保存至: {save_dir}\n")
                     except Exception as exc:
-                        pbar.write(f"\n[WARN] checkpoint 保存失败: {type(exc).__name__}: {exc}\n")
+                        print(f"\n[WARN] checkpoint 保存失败: {type(exc).__name__}: {exc}\n")
 
                 if env_steps >= total_env_steps:
                     break
@@ -1027,7 +1027,7 @@ def main():
 
         try:
             save_agent_checkpoint(agent, final_dir, final_env_steps, num_envs, base_env, teacher_env)
-            print(f"✅ Go2 Task4 Teacher 模型与归一化统计已保存至 {final_dir}")
+            print(f"[OK] Go2 Task4 Teacher 模型与归一化统计已保存至 {final_dir}")
         except Exception as exc:
             print(f"[WARN] 保存最终模型失败: {type(exc).__name__}: {exc}")
 
@@ -1041,7 +1041,7 @@ def main():
         except Exception:
             pass
 
-        print("✅ Go2 Task4 Teacher skrl PPO 训练管线安全退出")
+        print("[OK] Go2 Task4 Teacher skrl PPO 训练管线安全退出")
 
 
 if __name__ == "__main__":

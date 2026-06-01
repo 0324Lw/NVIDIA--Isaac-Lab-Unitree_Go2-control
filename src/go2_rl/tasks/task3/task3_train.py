@@ -462,11 +462,11 @@ def print_update(pbar, update_id, env_steps, total_steps, elapsed, num_envs, rol
         "learning_rate": lr,
     }
 
-    pbar.write(
+    print(
         "\n".join(
             [
                 "\n" + "=" * 124,
-                f"📊 [Go2 Task3 skrl PPO 更新 {update_id}] 总步数: {env_steps:,} / {total_steps:,} | "
+                f"[UPDATE] [Go2 Task3 skrl PPO 更新 {update_id}] 总步数: {env_steps:,} / {total_steps:,} | "
                 f"环境 FPS: {stat['fps_env_steps']:,.0f} | LR: {lr:.3e}",
                 "=" * 124,
                 make_table("time / progress", stat),
@@ -851,7 +851,7 @@ def load_actor_warm_start(models: Dict[str, Any], path: str, device: str, label:
         return False
 
     print("\n" + "=" * 124)
-    print(f"🔁 尝试加载 {label} actor warm-start: {path}")
+    print(f" 尝试加载 {label} actor warm-start: {path}")
     print("=" * 124)
 
     try:
@@ -869,7 +869,7 @@ def load_actor_warm_start(models: Dict[str, Any], path: str, device: str, label:
 
         log_std_ok = _try_set_policy_log_std(policy, float(pretrained_log_std))
 
-        print(f"✅ {label} actor warm-start 完成")
+        print(f"[OK] {label} actor warm-start 完成")
         print(f"   copied_policy_tensors = {report['copied']}/{report['total']}")
         print(f"   exact tensors         = {report['exact']}")
         print(f"   smart tensors         = {report['smart']}")
@@ -921,7 +921,7 @@ def main():
     log_dir = make_log_dir()
 
     print("\n" + "=" * 124)
-    print("🚀 Unitree Go2 Task3: Navigation / Obstacle Avoidance / Running skrl PPO 训练启动")
+    print("[START] Unitree Go2 Task3: Navigation / Obstacle Avoidance / Running skrl PPO 训练启动")
     print("=" * 124)
     print(f"[INFO] PROJECT_ROOT = {PROJECT_ROOT}")
     print(f"[INFO] log_dir      = {log_dir}")
@@ -1082,18 +1082,18 @@ def main():
         agents=agent,
     )
 
-    print("\n🔥 [Go2 Task3 skrl PPO 已点火]")
-    print("👉 训练目标：Task3-Navigation-V3 专用导航策略，从 scratch 学习进目标圈 + 避障 + 稳定运动。")
+    print("\n[RUN] [Go2 Task3 skrl PPO 已点火]")
+    print("[INFO] 训练目标：Task3-Navigation-V3 专用导航策略，从 scratch 学习进目标圈 + 避障 + 稳定运动。")
     print(
-        f"👉 Actor 输入：{base_env.cfg.num_observations} 维单帧观测 × "
+        f"[INFO] Actor 输入：{base_env.cfg.num_observations} 维单帧观测 × "
         f"{stacked_env.n_stack} 帧堆叠 = {env.observation_space.shape[0]}。"
     )
     print(
-        f"👉 Critic 输入：actor_stack {env.observation_space.shape[0]} + "
+        f"[INFO] Critic 输入：actor_stack {env.observation_space.shape[0]} + "
         f"world_priv {stacked_env.world_priv_dim} = {env.state_space.shape[0]}。"
     )
-    print("👉 V3 不使用 Task1/Task2 warm-start；如需继续训练，只能 resume V3 checkpoint。")
-    print("👉 日志重点：Current_Window_Success_Rate / Distance_Reduction_Ratio / Near_Goal_Rate / Timeout_Final_Distance。\n")
+    print("[INFO] V3 不使用 Task1/Task2 warm-start；如需继续训练，只能 resume V3 checkpoint。")
+    print("[INFO] 日志重点：Current_Window_Success_Rate / Distance_Reduction_Ratio / Near_Goal_Rate / Timeout_Final_Distance。\n")
 
     last_save = resume_env_steps
     update_id = 0
@@ -1165,9 +1165,9 @@ def main():
                         agent.save(os.path.join(save_dir, "go2_task3_model.pt"))
                         save_normalizers(agent, save_dir)
                         save_train_metadata(save_dir, env_steps, num_envs, base_env, stacked_env)
-                        pbar.write(f"\n💾 [Go2 Task3 备份] 总步数: {env_steps:,} | 已保存至: {save_dir}\n")
+                        print(f"\n[SAVE] [Go2 Task3 备份] 总步数: {env_steps:,} | 已保存至: {save_dir}\n")
                     except Exception as exc:
-                        pbar.write(f"\n[WARN] checkpoint 保存失败: {type(exc).__name__}: {exc}\n")
+                        print(f"\n[WARN] checkpoint 保存失败: {type(exc).__name__}: {exc}\n")
 
                 if env_steps >= total_env_steps:
                     break
@@ -1188,7 +1188,7 @@ def main():
             agent.save(os.path.join(final_dir, "go2_task3_model.pt"))
             save_normalizers(agent, final_dir)
             save_train_metadata(final_dir, final_env_steps, num_envs, base_env, stacked_env)
-            print(f"✅ Go2 Task3 模型与归一化统计已保存至 {final_dir}")
+            print(f"[OK] Go2 Task3 模型与归一化统计已保存至 {final_dir}")
         except Exception as exc:
             print(f"[WARN] 保存最终模型失败: {type(exc).__name__}: {exc}")
 
@@ -1202,7 +1202,7 @@ def main():
         except Exception:
             pass
 
-        print("✅ Go2 Task3 skrl PPO 训练管线安全退出")
+        print("[OK] Go2 Task3 skrl PPO 训练管线安全退出")
 
 
 if __name__ == "__main__":

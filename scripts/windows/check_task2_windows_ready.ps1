@@ -1,11 +1,28 @@
 param(
-    [string]$ProjectRoot = "G:\rt_isaaclab_ws\projects\unitree_go2_isaaclab_rl",
+    [string]$ProjectRoot = "G:\rt_isaaclab_ws\repos\NVIDIA--Isaac-Lab-Unitree_Go2-control",
     [string]$IsaacLabRoot = "G:\rt_isaaclab_ws\repos\IsaacLab_v2.3.2"
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+
+
+# Windows runtime compatibility.
+# Keep Python logs UTF-8 and unbuffered. This does not change training logic.
+try {
+    chcp 65001 | Out-Null
+    $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [Console]::InputEncoding = $Utf8NoBom
+    [Console]::OutputEncoding = $Utf8NoBom
+    $OutputEncoding = $Utf8NoBom
+} catch {
+}
+
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUNBUFFERED = "1"
+$env:PYTHONFAULTHANDLER = "1"
 $PythonBat = Join-Path $IsaacLabRoot "_isaac_sim\python.bat"
 $TrainPy = Join-Path $ProjectRoot "src\go2_rl\tasks\task2\task2_train.py"
 $EvalPy = Join-Path $ProjectRoot "src\go2_rl\tasks\task2\task2_model_test.py"

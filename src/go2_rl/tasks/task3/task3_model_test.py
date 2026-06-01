@@ -3,11 +3,10 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import logging
-import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -26,22 +25,40 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Evaluate Unitree Go2 Task3 skrl PPO model")
 parser.add_argument("--checkpoint", type=str, required=True)
-parser.add_argument("--num-envs", type=int, default=16)
+parser.add_argument("--num-envs", type=int, default=1)
 parser.add_argument("--steps", type=int, default=3000)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--start-k", type=float, default=1.0)
+parser.add_argument("--force-stage", type=int, default=-1)
 parser.add_argument("--print-interval", type=int, default=100)
 parser.add_argument("--deterministic", action="store_true", default=True)
-parser.add_argument("--visualize", action="store_true", help="Open Isaac Sim GUI for lightweight visualization")
-parser.add_argument("--no-close-on-exit", action="store_true", help="Debug only: do not explicitly call None if bool(getattr(args_cli, 'no_close_on_exit', False)) else simulation_app.close()")
+parser.add_argument("--visualize", action="store_true", help="Compatibility flag; GUI is enabled by default")
+parser.add_argument("--headless-eval", action="store_true", help="Run model evaluation without Isaac Sim GUI")
+parser.add_argument("--show-world-markers", action="store_true", default=True)
+parser.add_argument("--no-world-markers", action="store_true")
+parser.add_argument(
+    "--no-close-on-exit",
+    action="store_true",
+    help="Debug only: do not explicitly close Isaac Sim on exit",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli, _ = parser.parse_known_args()
-# Default to stable headless evaluation. Use --visualize only for GUI.
-args_cli.headless = not bool(getattr(args_cli, 'visualize', False))
-# Model evaluation should open Isaac Sim GUI by default.
-# Do not force headless here. Pass --headless manually if needed.
+
+# Windows / GIF 评估默认打开 Isaac Sim GUI。
+# 只有显式传入 --headless-eval 时，才使用无头评估。
+args_cli.headless = bool(getattr(args_cli, "headless_eval", False))
+if hasattr(args_cli, "enable_cameras"):
+    args_cli.enable_cameras = True
 
 simulation_app = AppLauncher(args_cli).app
+
+try:
+    import omni.usd
+    from pxr import Gf, UsdGeom
+except Exception:
+    omni = None
+    Gf = None
+    UsdGeom = None
 
 from skrl.envs.wrappers.torch import wrap_env
 from skrl.memories.torch import RandomMemory
@@ -54,25 +71,221 @@ except ImportError:
     from skrl.agents.torch.ppo import PPO
     from skrl.agents.torch.ppo.ppo_cfg import PPO_CFG
 
-from go2_rl.common.go2_skrl_models import Go2Actor, Go2Critic
-from go2_rl.common.info_utils import flat_dict, load_normalizers, to_float
 from go2_rl.common.eval_curriculum_utils import force_eval_curriculum
+from go2_rl.common.go2_skrl_models import Go2Actor, Go2Critic
+from go2_rl.common.info_utils import flat_dict, load_normalizers
 from go2_rl.common.model_eval_utils import direct_policy_action, init_agent_compat
 from go2_rl.tasks.task3.task3_config import Task3Config
 from go2_rl.tasks.task3.task3_env import Go2Task3Env
 
 
+class Task3EvalWorldMarkers:
+    """在模型测试脚本内显示 Task3 analytical world。
+
+    这个类只读取 base_env.world 中的 tensor，用 USD marker 可视化目标点和障碍物。
+    它不修改 task3_env.py / task3_world.py，不影响训练逻辑、奖励、观测、碰撞或 lidar。
+    """
+
+    def __init__(self, base_env: Go2Task3Env, enabled: bool = True):
+        self.base_env = base_env
+        self.enabled = bool(enabled) and omni is not None and UsdGeom is not None and Gf is not None
+        self.initialized = False
+
+        self.root_path = "/World/Task3EvalDebug"
+        self.goal_path = f"{self.root_path}/Goal"
+        self.static_paths: List[str] = []
+        self.dynamic_paths: List[str] = []
+
+    def _stage(self):
+        if not self.enabled:
+            return None
+        try:
+            return omni.usd.get_context().get_stage()
+        except Exception:
+            return None
+
+    def _set_translation(self, prim, xyz: Tuple[float, float, float]) -> None:
+        if UsdGeom is None or Gf is None:
+            return
+
+        xformable = UsdGeom.Xformable(prim)
+        translate_op = None
+
+        for op in xformable.GetOrderedXformOps():
+            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                translate_op = op
+                break
+
+        if translate_op is None:
+            translate_op = xformable.AddTranslateOp()
+
+        translate_op.Set(Gf.Vec3d(float(xyz[0]), float(xyz[1]), float(xyz[2])))
+
+    def _set_color(self, prim, rgb: Tuple[float, float, float]) -> None:
+        if UsdGeom is None or Gf is None:
+            return
+
+        try:
+            UsdGeom.Gprim(prim).CreateDisplayColorAttr().Set(
+                [Gf.Vec3f(float(rgb[0]), float(rgb[1]), float(rgb[2]))]
+            )
+        except Exception:
+            pass
+
+    def _ensure(self) -> None:
+        if self.initialized or not self.enabled:
+            return
+
+        stage = self._stage()
+        if stage is None:
+            return
+
+        root = UsdGeom.Xform.Define(stage, self.root_path)
+        self._set_translation(root.GetPrim(), (0.0, 0.0, 0.0))
+
+        goal = UsdGeom.Sphere.Define(stage, self.goal_path)
+        goal.CreateRadiusAttr(0.35)
+        self._set_color(goal.GetPrim(), (0.1, 0.9, 0.1))
+
+        world_cfg = self.base_env.cfg.world_cfg
+        max_static = int(getattr(world_cfg, "max_static_obs", 0))
+        max_dynamic = int(getattr(world_cfg, "max_dynamic_obs", 0))
+
+        self.static_paths = []
+        for i in range(max_static):
+            path = f"{self.root_path}/StaticObstacle_{i:02d}"
+            cyl = UsdGeom.Cylinder.Define(stage, path)
+            cyl.CreateRadiusAttr(0.25)
+            cyl.CreateHeightAttr(0.60)
+            self._set_color(cyl.GetPrim(), (0.9, 0.15, 0.1))
+            self.static_paths.append(path)
+
+        self.dynamic_paths = []
+        for i in range(max_dynamic):
+            path = f"{self.root_path}/DynamicObstacle_{i:02d}"
+            cyl = UsdGeom.Cylinder.Define(stage, path)
+            cyl.CreateRadiusAttr(0.25)
+            cyl.CreateHeightAttr(0.60)
+            self._set_color(cyl.GetPrim(), (0.1, 0.35, 1.0))
+            self.dynamic_paths.append(path)
+
+        self.initialized = True
+
+    def update(self) -> None:
+        if not self.enabled:
+            return
+
+        stage = self._stage()
+        if stage is None:
+            return
+
+        self._ensure()
+        if not self.initialized:
+            return
+
+        env_i = 0
+        base_env = self.base_env
+        world = base_env.world
+
+        try:
+            origin = base_env.env_origins[env_i].detach()
+        except Exception:
+            origin = torch.zeros(3, device=base_env.device)
+
+        ox = float(origin[0].detach().cpu().item())
+        oy = float(origin[1].detach().cpu().item())
+
+        # 绿色目标球。
+        try:
+            goal_xy = world.target_pos[env_i].detach()
+            goal_prim = stage.GetPrimAtPath(self.goal_path)
+
+            if goal_prim.IsValid():
+                self._set_translation(
+                    goal_prim,
+                    (
+                        ox + float(goal_xy[0].cpu().item()),
+                        oy + float(goal_xy[1].cpu().item()),
+                        0.35,
+                    ),
+                )
+        except Exception:
+            pass
+
+        # 红色静态障碍物柱体。
+        for i, path in enumerate(self.static_paths):
+            prim = stage.GetPrimAtPath(path)
+            if not prim.IsValid():
+                continue
+
+            try:
+                active = bool(world.static_mask[env_i, i].detach().cpu().item())
+                cyl = UsdGeom.Cylinder(prim)
+
+                if active:
+                    obs = world.static_obs[env_i, i].detach()
+                    radius = float(obs[2].cpu().item())
+
+                    cyl.GetRadiusAttr().Set(max(radius, 0.05))
+                    cyl.GetHeightAttr().Set(0.60)
+
+                    self._set_translation(
+                        prim,
+                        (
+                            ox + float(obs[0].cpu().item()),
+                            oy + float(obs[1].cpu().item()),
+                            0.30,
+                        ),
+                    )
+                else:
+                    cyl.GetRadiusAttr().Set(0.01)
+                    self._set_translation(prim, (0.0, 0.0, -10.0))
+            except Exception:
+                self._set_translation(prim, (0.0, 0.0, -10.0))
+
+        # 蓝色动态障碍物柱体。
+        for i, path in enumerate(self.dynamic_paths):
+            prim = stage.GetPrimAtPath(path)
+            if not prim.IsValid():
+                continue
+
+            try:
+                active = bool(world.dynamic_mask[env_i, i].detach().cpu().item())
+                cyl = UsdGeom.Cylinder(prim)
+
+                if active:
+                    pos = world.dynamic_obs_pos[env_i, i].detach()
+                    radius = float(world.dynamic_obs_radius[env_i, i].detach().cpu().item())
+
+                    cyl.GetRadiusAttr().Set(max(radius, 0.05))
+                    cyl.GetHeightAttr().Set(0.60)
+
+                    self._set_translation(
+                        prim,
+                        (
+                            ox + float(pos[0].cpu().item()),
+                            oy + float(pos[1].cpu().item()),
+                            0.30,
+                        ),
+                    )
+                else:
+                    cyl.GetRadiusAttr().Set(0.01)
+                    self._set_translation(prim, (0.0, 0.0, -10.0))
+            except Exception:
+                self._set_translation(prim, (0.0, 0.0, -10.0))
+
+
 class Go2Task3EvalFrameStackWrapper(gym.Env):
-    """Evaluation wrapper matching Task3 training layout.
+    """Task3 专用评估 wrapper，严格对齐最终训练 checkpoint。
 
-    Actor:
-        obs_stack = 257 * 5 = 1285
+    训练 / 评估维度：
+        actor single obs = 208
+        actor stacked obs = 208 * 5 = 1040
+        world privileged tail = 68
+        critic obs = 1040 + 68 = 1108
 
-    Critic:
-        obs_stack 1285 + world_privileged 68 = 1353
-
-    Returns dict:
-        {"policy": obs_stack, "critic": critic_obs}
+    不能使用 Go2FrameStackWrapper(use_privileged_obs=True)，因为它会堆叠完整
+    276 维 privileged obs，导致 critic = 276 * 5 = 1380，与最终模型不匹配。
     """
 
     def __init__(self, env: Go2Task3Env, n_stack: int = 5):
@@ -85,15 +298,22 @@ class Go2Task3EvalFrameStackWrapper(gym.Env):
 
         self.single_obs_dim = int(env.cfg.num_observations)
         self.single_priv_dim = int(env.cfg.num_privileged_obs)
-        self.world_priv_dim = self.single_priv_dim - self.single_obs_dim
+        self.world_priv_dim = int(self.single_priv_dim - self.single_obs_dim)
 
-        if self.single_obs_dim != 257:
-            raise RuntimeError(f"Task3 actor single obs dim should be 257, got {self.single_obs_dim}")
+        if self.single_obs_dim != 208:
+            raise RuntimeError(f"Task3 actor single obs dim should be 208, got {self.single_obs_dim}")
+
         if self.world_priv_dim != 68:
-            raise RuntimeError(f"Task3 world privileged dim should be 68, got {self.world_priv_dim}")
+            raise RuntimeError(f"Task3 world priv dim should be 68, got {self.world_priv_dim}")
 
-        self.stacked_obs_dim = self.single_obs_dim * self.n_stack
-        self.critic_obs_dim = self.stacked_obs_dim + self.world_priv_dim
+        self.stacked_obs_dim = int(self.single_obs_dim * self.n_stack)
+        self.critic_obs_dim = int(self.stacked_obs_dim + self.world_priv_dim)
+
+        if self.stacked_obs_dim != 1040:
+            raise RuntimeError(f"Task3 policy obs dim should be 1040, got {self.stacked_obs_dim}")
+
+        if self.critic_obs_dim != 1108:
+            raise RuntimeError(f"Task3 critic obs dim should be 1108, got {self.critic_obs_dim}")
 
         self.observation_space = gym.spaces.Box(
             low=-np.inf,
@@ -101,14 +321,12 @@ class Go2Task3EvalFrameStackWrapper(gym.Env):
             shape=(self.stacked_obs_dim,),
             dtype=np.float32,
         )
-
         self.state_space = gym.spaces.Box(
             low=-np.inf,
             high=np.inf,
             shape=(self.critic_obs_dim,),
             dtype=np.float32,
         )
-
         self.single_observation_space = gym.spaces.Dict(
             {
                 "policy": self.observation_space,
@@ -136,7 +354,6 @@ class Go2Task3EvalFrameStackWrapper(gym.Env):
     def _build_critic_obs(self) -> torch.Tensor:
         raw_priv = self.env.compute_privileged_obs()
         world_priv = raw_priv[:, self.single_obs_dim:]
-
         critic = torch.cat([self.obs_stack, world_priv], dim=-1)
 
         return torch.nan_to_num(
@@ -171,6 +388,7 @@ class Go2Task3EvalFrameStackWrapper(gym.Env):
         done = terminated | truncated
         if done.any():
             ids = done.nonzero(as_tuple=False).squeeze(-1)
+
             for i in range(self.n_stack):
                 self.obs_stack[
                     ids,
@@ -178,7 +396,7 @@ class Go2Task3EvalFrameStackWrapper(gym.Env):
                 ] = obs[ids]
 
         self.last_info = info or {}
-        self.last_reward_mean = to_float(reward) or 0.0
+        self.last_reward_mean = float(reward.detach().float().mean().cpu().item())
         self.last_done_count = int(done.sum().detach().cpu().item())
 
         return self._pack(), reward, terminated, truncated, self.last_info
@@ -201,6 +419,7 @@ def summarize(records: List[Dict[str, float]]):
         vals = np.asarray([row[key] for row in records if key in row], dtype=np.float64)
         if vals.size == 0:
             continue
+
         out[key] = {
             "mean": float(np.mean(vals)),
             "std": float(np.std(vals)),
@@ -341,32 +560,111 @@ def step_env(env, actions):
     out = env.step(actions)
     if len(out) == 5:
         return out
+
     states, rewards, dones, infos = out
     return states, rewards, dones, dones, infos
+
+
+def force_task3_eval_stage(base_env: Go2Task3Env, start_k: float, force_stage: int = -1) -> int:
+    """只在 model_test.py 运行期强制 Task3 评估阶段，不修改 env/world 文件。"""
+
+    k = float(max(0.0, min(1.0, float(start_k))))
+
+    try:
+        base_env.cfg.world_cfg.curriculum_resume_k_floor = k
+    except Exception:
+        pass
+
+    total_steps = int(getattr(base_env.cfg.world_cfg, "curriculum_total_steps", 0))
+    if total_steps <= 0:
+        total_steps = int(getattr(base_env.cfg, "curriculum_total_steps", 0))
+
+    global_steps = int(k * float(max(total_steps, 1)))
+    base_env.global_steps = global_steps
+
+    if int(force_stage) >= 0:
+        stage = int(force_stage)
+    else:
+        try:
+            stage = int(base_env.world.stage_from_progress(k))
+        except Exception:
+            stage = int(getattr(base_env.world, "stage_count", 6)) - 1
+
+    stage_count = int(getattr(base_env.world, "stage_count", stage + 1))
+    stage = int(max(0, min(stage_count - 1, stage)))
+
+    for name, value in (
+        ("curriculum_active_stage", stage),
+        ("curriculum_stage_start_steps", global_steps),
+        ("curriculum_last_check_steps", global_steps),
+    ):
+        if hasattr(base_env, name):
+            try:
+                setattr(base_env, name, value)
+            except Exception:
+                pass
+
+    try:
+        env_ids = torch.arange(base_env.num_envs, dtype=torch.long, device=base_env.device)
+        base_env.world.set_stage(env_ids, stage)
+    except Exception:
+        pass
+
+    # 只在评估进程内 monkey patch reset stage。
+    # 这样 reset_env(env) 不会被 performance-gated curriculum 混合采样回 Stage0。
+    try:
+        import types
+
+        def _forced_sample_reset_stages(self, env_ids):
+            env_ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device).flatten()
+            return torch.full(
+                (int(env_ids.numel()),),
+                int(stage),
+                dtype=torch.long,
+                device=self.device,
+            )
+
+        base_env._sample_reset_stages = types.MethodType(_forced_sample_reset_stages, base_env)
+        base_env._rt_eval_forced_stage = int(stage)
+    except Exception as exc:
+        print(f"[WARN] failed to monkey-patch Task3 reset stage: {exc}")
+
+    print(
+        f"[TASK3_EVAL] requested start_k={k:.4f}, force_stage={stage}, "
+        f"global_steps={global_steps:,}"
+    )
+
+    return stage
 
 
 def main():
     set_seed(int(args_cli.seed))
 
     cfg = Task3Config()
-    cfg.num_envs = int(args_cli.num_envs)
+
+    # GUI/GIF 模式只显示一个 Go2；headless-eval 才允许多环境评估。
+    requested_num_envs = int(args_cli.num_envs)
+    is_headless_eval = bool(getattr(args_cli, "headless_eval", False))
+    cfg.num_envs = requested_num_envs if is_headless_eval else 1
+
     cfg.device = str(args_cli.device)
     cfg.print_debug_info = False
 
-    base_env = Go2Task3Env(cfg)
-    force_eval_curriculum(base_env, args_cli.start_k, label="after_env_creation")
+    # 在环境创建前设置 curriculum floor，降低 reset 采到低阶段的概率。
+    try:
+        cfg.world_cfg.curriculum_resume_k_floor = float(args_cli.start_k)
+    except Exception:
+        pass
 
-    if args_cli.start_k > 0:
-        base_env.global_steps = int(float(args_cli.start_k) * cfg.curriculum_total_steps)
-        print(
-            f"[INFO] Evaluation start_k={args_cli.start_k:.4f}, "
-            f"global_steps={base_env.global_steps:,}"
-        )
+    base_env = Go2Task3Env(cfg)
+
+    force_eval_curriculum(base_env, args_cli.start_k, label="after_env_creation")
+    forced_stage = force_task3_eval_stage(base_env, args_cli.start_k, int(args_cli.force_stage))
 
     stacked_env = Go2Task3EvalFrameStackWrapper(base_env, n_stack=5)
     env = wrap_env(stacked_env, wrapper="isaaclab")
 
-    print("\n[DEBUG] Go2 Task3 Eval Spaces")
+    print("\n[INFO] Go2 Task3 Eval Spaces")
     print(f"  env.observation_space = {env.observation_space}")
     print(f"  env.state_space       = {env.state_space}")
     print(f"  env.action_space      = {env.action_space}")
@@ -374,10 +672,10 @@ def main():
     print(f"  critic input dim      = {env.state_space.shape[0]}")
     print(f"  action dim            = {env.action_space.shape[0]}")
 
-    if int(env.observation_space.shape[0]) != 1285:
-        raise RuntimeError(f"Task3 policy input dim should be 1285, got {env.observation_space.shape[0]}")
-    if int(env.state_space.shape[0]) != 1353:
-        raise RuntimeError(f"Task3 critic input dim should be 1353, got {env.state_space.shape[0]}")
+    if int(env.observation_space.shape[0]) != 1040:
+        raise RuntimeError(f"Task3 policy input dim should be 1040, got {env.observation_space.shape[0]}")
+    if int(env.state_space.shape[0]) != 1108:
+        raise RuntimeError(f"Task3 critic input dim should be 1108, got {env.state_space.shape[0]}")
 
     agent = build_agent(env)
     init_agent_compat(agent)
@@ -398,9 +696,21 @@ def main():
     except Exception:
         pass
 
-    force_eval_curriculum(base_env if "base_env" in locals() else env, args_cli.start_k, label="before_rollout_reset")
+    force_eval_curriculum(base_env, args_cli.start_k, label="before_rollout_reset")
+    forced_stage = force_task3_eval_stage(base_env, args_cli.start_k, int(args_cli.force_stage))
+
     states, _ = reset_env(env)
-    force_eval_curriculum(base_env if "base_env" in locals() else env, args_cli.start_k, label="after_rollout_reset")
+
+    # reset 后再次固定 stage，防止 reset 时重新采样到低阶段。
+    forced_stage = force_task3_eval_stage(base_env, args_cli.start_k, int(args_cli.force_stage))
+
+    show_markers = (
+        (not bool(getattr(args_cli, "headless_eval", False)))
+        and bool(getattr(args_cli, "show-world-markers", True))
+        and (not bool(getattr(args_cli, "no-world-markers", False)))
+    )
+    markers = Task3EvalWorldMarkers(base_env, enabled=show_markers)
+    markers.update()
 
     records: List[Dict[str, float]] = []
     total_terminated = 0
@@ -415,12 +725,13 @@ def main():
     print("\n" + "=" * 150)
     print("Unitree Go2 Task3 skrl model test started")
     print("=" * 150)
-    print(f"[INFO] model_test requested start_k = {args_cli.start_k}")
-    print(f"checkpoint : {checkpoint}")
-    print(f"num_envs   : {env.num_envs}")
-    print(f"steps      : {args_cli.steps}")
-    print(f"start_k    : {args_cli.start_k}")
-    print(f"device     : {env.device}")
+    print(f"checkpoint   : {checkpoint}")
+    print(f"num_envs     : {env.num_envs}")
+    print(f"steps        : {args_cli.steps}")
+    print(f"start_k      : {args_cli.start_k}")
+    print(f"forced_stage : {forced_stage}")
+    print(f"device       : {env.device}")
+    print(f"markers      : {show_markers}")
     print("=" * 150 + "\n")
 
     try:
@@ -432,48 +743,64 @@ def main():
         ) as pbar:
             for step in range(int(args_cli.steps)):
                 with torch.no_grad():
-                    print(f"[DEBUG][eval step {step}] before direct_policy_action", flush=True)
                     actions = direct_policy_action(
                         agent,
                         states,
-                        debug=(step < 3),
+                        debug=False,
                         step=int(step),
                     )
-                    print(f"[DEBUG][eval step {step}] after direct_policy_action", flush=True)
-                    print(f"[DEBUG][eval step {step}] before env.step", flush=True) if step < 3 else None
+
+                    action_abs_mean = float(actions.detach().abs().mean().cpu().item())
+                    action_abs_max = float(actions.detach().abs().max().cpu().item())
+
                     states, rewards, terminated, truncated, _ = step_env(env, actions)
-                    print(f"[DEBUG][eval step {step}] after env.step", flush=True) if step < 3 else None
+
+                markers.update()
 
                 flat = flat_dict(stacked_env.last_info)
 
                 total_terminated += int(terminated.sum().item())
                 total_truncated += int(truncated.sum().item())
 
-                total_success += int(round(flat.get("events/Success_Rate", 0.0) * int(env.num_envs)))
-                total_collision += int(round(flat.get("events/Collision_Rate", 0.0) * int(env.num_envs)))
-                total_fall += int(round(flat.get("events/Fall_Rate", 0.0) * int(env.num_envs)))
-                total_timeout += int(round(flat.get("events/Timeout_Rate", 0.0) * int(env.num_envs)))
+                num_envs = int(env.num_envs)
+                total_success += int(round(flat.get("events/Success_Rate", 0.0) * num_envs))
+                total_collision += int(round(flat.get("events/Collision_Rate", 0.0) * num_envs))
+                total_fall += int(round(flat.get("events/Fall_Rate", 0.0) * num_envs))
+                total_timeout += int(round(flat.get("events/Timeout_Rate", 0.0) * num_envs))
 
                 if step % max(int(args_cli.print_interval), 1) == 0 or step == int(args_cli.steps) - 1:
                     row = {
                         "reward_mean": float(rewards.detach().float().mean().cpu().item()),
                         "terminated_rate": float(terminated.float().mean().cpu().item()),
                         "truncated_rate": float(truncated.float().mean().cpu().item()),
+                        "action_abs_mean": action_abs_mean,
+                        "action_abs_max": action_abs_max,
                     }
                     row.update(flat)
                     records.append(row)
 
+                    stage_val = flat.get("telemetry/Command_Stage", flat.get("world/Stage", 0.0))
+                    static_count = flat.get("telemetry/Static_Count", flat.get("world/Static_Count", 0.0))
+                    dynamic_count = flat.get("telemetry/Dynamic_Count", flat.get("world/Dynamic_Count", 0.0))
+                    vx_val = flat.get("telemetry/Actual_Vx", flat.get("telemetry/Actual_Vx_Body", 0.0))
+                    risk_val = flat.get("telemetry/Collision_Risk", flat.get("world/Risk_All", 0.0))
+                    progress_val = flat.get("telemetry/Progress_Step", flat.get("telemetry/Progress", 0.0))
+                    dist_val = flat.get("telemetry/Distance_To_Goal", flat.get("world/Goal_Dist", 0.0))
+
                     pbar.set_postfix(
                         {
                             "rew": f"{row['reward_mean']:+.3f}",
-                            "stage": f"{flat.get('telemetry/Command_Stage', 0.0):.1f}",
-                            "dist": f"{flat.get('telemetry/Distance_To_Goal', 0.0):.2f}",
-                            "prog": f"{flat.get('telemetry/Progress', 0.0):+.3f}",
+                            "stage": f"{stage_val:.1f}",
+                            "static": f"{static_count:.0f}",
+                            "dyn": f"{dynamic_count:.0f}",
+                            "dist": f"{dist_val:.2f}",
+                            "prog": f"{progress_val:+.3f}",
                             "succ": f"{flat.get('events/Success_Rate', 0.0):.3f}",
                             "coll": f"{flat.get('events/Collision_Rate', 0.0):.3f}",
                             "fall": f"{flat.get('events/Fall_Rate', 0.0):.3f}",
-                            "risk": f"{flat.get('telemetry/Collision_Risk', 0.0):.2f}",
-                            "h": f"{flat.get('telemetry/Base_Height', 0.0):.3f}",
+                            "risk": f"{risk_val:.2f}",
+                            "vx": f"{vx_val:+.2f}",
+                            "act": f"{action_abs_mean:.2f}/{action_abs_max:.2f}",
                         }
                     )
 
@@ -483,7 +810,7 @@ def main():
         env_steps = int(args_cli.steps) * int(env.num_envs)
         fps = env_steps / max(elapsed, 1e-6)
 
-        print("\n✅ Go2 Task3 model test rollout finished")
+        print("\n[OK] Go2 Task3 model test rollout finished")
         print(f"  env steps          : {env_steps:,}")
         print(f"  fps                : {fps:,.2f}")
         print(f"  total terminated   : {total_terminated:,}")
@@ -495,14 +822,6 @@ def main():
 
         print_table(summarize(records))
 
-        print("Task3 model test checklist:")
-        print("1. Smoke checkpoint 表现差是正常的，重点检查是否能稳定推理、无 NaN/Inf。")
-        print("2. 正式训练 checkpoint 应逐步看到 Distance_To_Goal 下降、Progress 为正、Success_Rate 上升。")
-        print("3. Stage0 重点看无障碍目标到达；Stage1+ 再看 Collision_Risk / Collision_Rate。")
-        print("4. Fall_Rate 高说明底层 gait 或 action scale 有问题。")
-        print("5. Collision_Rate 高但 Progress 正常，通常是避障奖励或 lidar/risk 权重需要调。")
-        print("6. 如果 Distance_To_Goal 长期不下降，应优先检查 target_obs、progress reward 和 root-local 坐标对齐。")
-
     finally:
         try:
             env.close()
@@ -510,7 +829,8 @@ def main():
             pass
 
         try:
-            None if bool(getattr(args_cli, 'no_close_on_exit', False)) else simulation_app.close()
+            if not bool(getattr(args_cli, "no-close-on-exit", False)):
+                simulation_app.close()
         except Exception:
             pass
 
