@@ -1,14 +1,20 @@
 # Copyright (c) 2026
-# Unitree Go2 Task3: navigation-success oriented obstacle avoidance config with final stability tuning.
+# Unitree Go2 Task3：导航成功导向的动态避障任务配置。
 #
-# Strict refactor notes:
-# 1. Task3WorldCfg is pure torch analytical world config.
-# 2. Task3Config is IsaacLab Go2 environment config.
-# 3. task3_world.py must not import IsaacLab.
-# 4. task3_env.py imports IsaacLab but must not start AppLauncher.
-# 5. Task3-V3.2 is the final stability-tuned navigation policy config.
-# 6. Actor single obs dim = 208 when num_lidar_rays = 60.
-# 7. Critic single obs dim = 276 = actor obs 208 + world privileged 68.
+# 本文件只定义 Task3 的配置数据，不启动 IsaacLab / AppLauncher。
+#
+# 文件边界：
+# 1. Task3WorldCfg 是纯 torch 解析世界配置，供 task3_world.py 使用。
+# 2. Task3Config 是 IsaacLab Go2 环境配置，供 task3_env.py 使用。
+# 3. task3_world.py 不允许 import IsaacLab。
+# 4. task3_env.py 可以 import IsaacLab，但不允许启动 AppLauncher。
+# 5. 当前稳定版本为 Task3-V3.2。
+#
+# 维度约定：
+#   actor 单帧观测维度       = 208
+#   privileged 单帧观测维度  = 276 = actor 208 + world privileged 68
+#   lidar 射线数量           = 60
+#   训练时 frame stack 由 task3_train.py / wrapper 处理。
 
 from __future__ import annotations
 
@@ -18,7 +24,7 @@ from typing import Tuple
 
 @dataclass
 class Task3WorldCfg:
-    """Analytical navigation world config for Go2 Task3-V3.1."""
+    """Go2 Task3-V3.2 解析导航世界配置。"""
 
     # ----------------------------- Frequency -----------------------------
     pd_control_freq: float = 200.0

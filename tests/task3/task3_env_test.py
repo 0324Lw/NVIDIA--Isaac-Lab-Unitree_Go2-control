@@ -1,12 +1,13 @@
-# Unitree Go2 Task3 environment test.
+# Unitree Go2 Task3：IsaacLab 环境集成测试。
 #
-# Usage:
-#   cd /home/lw/unitree_go2_isaaclab_rl
+# 使用方式：
+#   cd <repo_root>
 #   bash scripts/ubuntu/test_task3_env.sh
 #
-# Important:
-#   task3_env.py imports IsaacLab / pxr dependent modules.
-#   Therefore AppLauncher must be launched before importing Go2Task3Env.
+# 测试边界：
+# 1. task3_env.py 依赖 IsaacLab / pxr 模块。
+# 2. 因此必须先启动 AppLauncher，再 import Go2Task3Env。
+# 3. 本测试覆盖环境初始化、obs / privileged obs 维度、reset、step、终止条件和随机 rollout。
 
 from __future__ import annotations
 
@@ -49,11 +50,11 @@ from go2_rl.tasks.task3.task3_env import Go2Task3Env
 
 
 def print_ok(msg: str) -> None:
-    print(f" ✅ {msg}", flush=True)
+    print(f"[OK] {msg}", flush=True)
 
 
 def print_warn(msg: str) -> None:
-    print(f" ⚠️ {msg}", flush=True)
+    print(f"[WARN] {msg}", flush=True)
 
 
 def heading(title: str) -> None:
@@ -202,20 +203,32 @@ def check_observation_slices(env: Go2Task3Env, obs: torch.Tensor) -> None:
         ("base_lin_vel", 3),
         ("base_ang_vel", 3),
         ("projected_gravity", 3),
-        ("target_obs", 3),
-        ("target_speed", 1),
-        ("progress_ema", 1),
         ("q_err", 12),
         ("qd", 12),
         ("last_action", 12),
         ("action_delta", 12),
         ("foot_contact", 4),
-        ("lidar", 90),
-        ("lidar_delta", 90),
-        ("risk_features", 8),
         ("base_height", 1),
-        ("sin_phase", 1),
-        ("cos_phase", 1),
+        ("goal_dir_body", 2),
+        ("goal_dist_norm", 1),
+        ("goal_log_dist", 1),
+        ("heading_sin_cos", 2),
+        ("heading_cos", 1),
+        ("actual_along_goal", 1),
+        ("lateral_vel_to_goal", 1),
+        ("target_speed", 1),
+        ("desired_speed", 1),
+        ("speed_ratio", 1),
+        ("progress_step", 1),
+        ("progress_ema_norm", 1),
+        ("distance_reduction_ratio", 1),
+        ("near_goal_flag", 1),
+        ("success_radius_norm", 1),
+        ("time_fraction", 1),
+        ("stuck_timer_norm", 1),
+        ("obstacle_summary", 7),
+        ("lidar", 60),
+        ("lidar_delta", 60),
     ]
 
     for name, dim in layout:
@@ -227,31 +240,41 @@ def check_observation_slices(env: Go2Task3Env, obs: torch.Tensor) -> None:
     for name, value in slices.items():
         assert_finite_tensor(name, value)
 
-    assert torch.all(slices["target_obs"][:, 0] >= -1e-5)
-    assert torch.all(slices["target_obs"][:, 0] <= 2.0 + 1e-5)
-    assert torch.all(slices["target_obs"][:, 1:].abs() <= 1.0001)
+    assert torch.all(slices["foot_contact"] >= -1e-5)
+    assert torch.all(slices["foot_contact"] <= 1.0 + 1e-5)
+
+    assert torch.all(slices["goal_dir_body"].abs() <= 1.0001)
+    assert torch.all(slices["goal_dist_norm"] >= -1e-5)
+    assert torch.all(slices["goal_dist_norm"] <= 2.0 + 1e-5)
+    assert torch.all(slices["goal_log_dist"] >= -1e-5)
+
+    assert torch.all(slices["heading_sin_cos"].abs() <= 1.0001)
+    assert torch.all(slices["heading_cos"].abs() <= 1.0001)
 
     assert torch.all(slices["target_speed"] >= -1e-5)
     assert torch.all(slices["target_speed"] <= 2.0 + 1e-5)
+    assert torch.all(slices["desired_speed"] >= -1e-5)
+    assert torch.all(slices["desired_speed"] <= 2.0 + 1e-5)
 
-    assert torch.all(slices["foot_contact"] >= -1e-5)
-    assert torch.all(slices["foot_contact"] <= 1.0 + 1e-5)
+    assert torch.all(slices["progress_ema_norm"].abs() <= 2.0001)
+    assert torch.all(slices["distance_reduction_ratio"].abs() <= 1.0001)
+    assert torch.all(slices["near_goal_flag"] >= -1e-5)
+    assert torch.all(slices["near_goal_flag"] <= 1.0 + 1e-5)
+    assert torch.all(slices["success_radius_norm"] >= -1e-5)
+    assert torch.all(slices["success_radius_norm"] <= 1.0 + 1e-5)
+    assert torch.all(slices["time_fraction"] >= -1e-5)
+    assert torch.all(slices["time_fraction"] <= 1.0 + 1e-5)
+    assert torch.all(slices["stuck_timer_norm"] >= -1e-5)
+    assert torch.all(slices["stuck_timer_norm"] <= 1.0 + 1e-5)
+
+    assert torch.all(slices["obstacle_summary"] >= -1e-5)
+    assert torch.all(slices["obstacle_summary"] <= 1.0 + 1e-5)
 
     assert torch.all(slices["lidar"] >= -1e-5)
     assert torch.all(slices["lidar"] <= 1.0 + 1e-5)
 
     assert torch.all(slices["lidar_delta"] >= -1.0001)
     assert torch.all(slices["lidar_delta"] <= 1.0001)
-
-    risk = slices["risk_features"]
-    assert torch.all(risk[:, :5] >= -1e-5)
-    assert torch.all(risk[:, :5] <= 1.0 + 1e-5)
-    assert torch.all(risk[:, 5:7].abs() <= 1.0001)
-    assert torch.all(risk[:, 7] >= -1e-5)
-    assert torch.all(risk[:, 7] <= 1.0 + 1e-5)
-
-    assert torch.all(slices["sin_phase"].abs() <= 1.0001)
-    assert torch.all(slices["cos_phase"].abs() <= 1.0001)
 
     h_mean = slices["base_height"].mean().item()
     assert 0.10 <= h_mean <= 0.75, f"base_height mean abnormal: {h_mean:.4f}"
@@ -369,12 +392,16 @@ def check_command_stage_reset(env: Go2Task3Env, cfg: Task3Config) -> None:
 
     checks = [
         (0.00, 0),
-        (0.079, 0),
-        (0.08, 1),
-        (0.20, 2),
-        (0.36, 3),
-        (0.56, 4),
-        (0.78, 5),
+        (0.179999, 0),
+        (0.18, 1),
+        (0.379999, 1),
+        (0.38, 2),
+        (0.619999, 2),
+        (0.62, 3),
+        (0.839999, 3),
+        (0.84, 4),
+        (0.959999, 4),
+        (0.96, 5),
         (1.00, 5),
     ]
 
@@ -384,7 +411,7 @@ def check_command_stage_reset(env: Go2Task3Env, cfg: Task3Config) -> None:
 
     rows = []
 
-    for k in [0.0, 0.10, 0.25, 0.45, 0.65, 0.90]:
+    for k in [0.0, 0.20, 0.45, 0.65, 0.85, 0.98]:
         env.global_steps = int(k * cfg.curriculum_total_steps)
         obs, _ = env.reset(seed=args_cli.seed)
 
@@ -394,12 +421,24 @@ def check_command_stage_reset(env: Go2Task3Env, cfg: Task3Config) -> None:
         stage_max = int(env.world.env_stage.max().item())
         expected = env.world.stage_from_progress(k)
 
-        assert stage_min == expected and stage_max == expected
+        # performance-gated curriculum 下：
+        # 1. global_steps 只决定当前允许的最高课程阶段 cap；
+        # 2. 实际 reset stage 由 curriculum_active_stage 及其相邻阶段混合采样决定；
+        # 3. 手动设置 global_steps 不会直接把 curriculum_active_stage 推进到 expected。
+        # 因此这里只检查采样结果没有超过全局允许上限。
+        if bool(getattr(cfg.world_cfg, "use_performance_gated_curriculum", False)):
+            cap = int(env._global_stage_cap())
+            assert 0 <= stage_min <= stage_max <= cap, (
+                f"stage range out of global cap: "
+                f"stage_min={stage_min}, stage_max={stage_max}, cap={cap}, expected={expected}"
+            )
+        else:
+            assert stage_min == expected and stage_max == expected
 
         static_count = env.world.static_mask.float().sum(dim=-1)
         dynamic_count = env.world.dynamic_mask.float().sum(dim=-1)
 
-        if expected == 0:
+        if stage_max == 0:
             assert static_count.max().item() == 0
             assert dynamic_count.max().item() == 0
 
@@ -552,9 +591,9 @@ def run_tests() -> None:
     cfg.print_debug_info = bool(args_cli.print_names)
 
     assert cfg.num_actions == 12
-    assert cfg.num_observations == 257
-    assert cfg.num_privileged_obs == 325
-    assert cfg.world_cfg.num_lidar_rays == 90
+    assert cfg.num_observations == 208
+    assert cfg.num_privileged_obs == 276
+    assert cfg.world_cfg.num_lidar_rays == 60
 
     env: Go2Task3Env | None = None
 
@@ -637,14 +676,14 @@ def run_tests() -> None:
         flat = flatten_info(latest_info)
         required_info_keys = [
             "reward_components/Total",
-            "reward_components/R_Progress",
+            "reward_components/R_Progress_Step",
             "reward_components/P_Obstacle_Risk",
             "events/Success_Rate",
             "events/Collision_Rate",
             "events/Fall_Rate",
             "telemetry/Command_Stage",
             "telemetry/Distance_To_Goal",
-            "telemetry/Progress",
+            "telemetry/Progress_Step",
             "telemetry/Collision_Risk",
             "telemetry/Base_Height",
             "telemetry/Contact_Count",
@@ -771,7 +810,7 @@ def run_tests() -> None:
                     f"reward={row.get('test/reward_mean', 0.0):>8.4f} | "
                     f"stage={row.get('telemetry/Command_Stage', 0.0):>4.1f} | "
                     f"dist={row.get('telemetry/Distance_To_Goal', 0.0):>6.3f} | "
-                    f"progress={row.get('telemetry/Progress', 0.0):>7.3f} | "
+                    f"progress={row.get('telemetry/Progress_Step', 0.0):>7.3f} | "
                     f"success={row.get('events/Success_Rate', 0.0):>6.3f} | "
                     f"collision={row.get('events/Collision_Rate', 0.0):>6.3f} | "
                     f"fall={row.get('events/Fall_Rate', 0.0):>6.3f} | "
@@ -793,17 +832,17 @@ def run_tests() -> None:
         print_summary_table(summarize_records(records))
 
         print("Go2 Task3 training pre-check guide:")
-        print("1. actor obs 必须为 257，privileged obs 必须为 325。")
-        print("2. lidar 和 lidar_delta 均应为 90 维，risk feature 应为 8 维。")
+        print("1. actor obs 必须为 208，privileged obs 必须为 276。")
+        print("2. lidar 和 lidar_delta 均应为 60 维，risk feature 应为 8 维。")
         print("3. 随机策略下 collision / fall 可以出现，但不能出现 NaN/Inf。")
         print("4. success 在随机策略下很低是正常的。")
-        print("5. 训练时重点看 Progress、Distance_To_Goal、Success_Rate、Collision_Rate、Fall_Rate。")
+        print("5. 训练时重点看 Progress_Step、Distance_To_Goal、Success_Rate、Collision_Rate、Fall_Rate。")
         print("6. Task3 正式训练建议使用 Task1 或 Task2 actor warm-start。")
 
         heading("Go2 Task3 Navigation / Obstacle Avoidance Env 测试全部通过")
 
     except Exception as exc:
-        print("\n❌ Go2 Task3 环境测试失败：")
+        print("\n[FAIL] Go2 Task3 环境测试失败：")
         print(type(exc).__name__, ":", exc)
         raise
 

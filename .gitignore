@@ -76,3 +76,12 @@ isaacsim.*
 *.local.json
 windows_paths.local.json
 # RL_OPEN_SOURCE_SCAFFOLD_IGNORE_END
+
+# Refactor temporary backups
+_refactor_backups/
+docs/refactor_logs/*.patch
+
+# Refactor temporary backups
+_refactor_backups/
+docs/refactor_logs/*.patch
+docs/refactor_logs/

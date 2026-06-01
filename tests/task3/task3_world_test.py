@@ -1,12 +1,13 @@
-# Unitree Go2 Task3 analytical world test.
+# Unitree Go2 Task3：纯 torch 解析世界白盒测试。
 #
-# Usage:
-#   cd /home/lw/unitree_go2_isaaclab_rl
+# 使用方式：
+#   cd <repo_root>
 #   python tests/task3/task3_world_test.py --num-envs 2048 --test-device cuda:0
 #
-# Important:
-#   Task3World is pure torch and does NOT import IsaacLab.
-#   This test must be fast, headless-free, and independent of AppLauncher.
+# 测试边界：
+# 1. Task3World 是纯 torch 解析世界，不允许 import IsaacLab。
+# 2. 本测试不启动 AppLauncher，不依赖 headless / GUI。
+# 3. 本测试覆盖课程阶段、reset 采样、障碍物安全区、动态障碍运动、lidar 和 privileged features。
 
 from __future__ import annotations
 
@@ -39,11 +40,11 @@ args = parser.parse_args()
 
 
 def print_ok(msg: str) -> None:
-    print(f" ✅ {msg}", flush=True)
+    print(f"[OK] {msg}", flush=True)
 
 
 def print_warn(msg: str) -> None:
-    print(f" ⚠️ {msg}", flush=True)
+    print(f"[WARN] {msg}", flush=True)
 
 
 def heading(title: str) -> None:
@@ -162,7 +163,7 @@ def test_config(cfg: Task3WorldCfg) -> None:
     assert abs(cfg.policy_dt - 0.02) < 1e-8
 
     assert cfg.env_size == 30.0
-    assert cfg.num_lidar_rays == 90
+    assert cfg.num_lidar_rays == 60
     assert cfg.lidar_max_distance == 6.0
     assert cfg.max_static_obs == 25
     assert cfg.max_dynamic_obs == 8
@@ -228,16 +229,16 @@ def test_curriculum(cfg: Task3WorldCfg, world: Task3World) -> None:
 
     checks = [
         (0.00, 0),
-        (0.079999, 0),
-        (0.08, 1),
-        (0.199999, 1),
-        (0.20, 2),
-        (0.359999, 2),
-        (0.36, 3),
-        (0.559999, 3),
-        (0.56, 4),
-        (0.779999, 4),
-        (0.78, 5),
+        (0.179999, 0),
+        (0.18, 1),
+        (0.379999, 1),
+        (0.38, 2),
+        (0.619999, 2),
+        (0.62, 3),
+        (0.839999, 3),
+        (0.84, 4),
+        (0.959999, 4),
+        (0.96, 5),
         (1.00, 5),
     ]
 
@@ -815,10 +816,10 @@ def main() -> None:
     heading("Go2 Task3 Analytical World 测试全部通过")
     print("重点结论：")
     print("1. Task3World 是纯 torch 解析世界，不依赖 IsaacLab，不创建 obstacle prim。")
-    print("2. 课程阶段映射正常：K=0.08 进入 Stage1，K=0.20 进入 Stage2，K=0.78 进入 Stage5。")
+    print("2. 课程阶段映射正常：K=0.18 进入 Stage1，K=0.38 进入 Stage2，K=0.96 进入 Stage5。")
     print("3. Stage0 无障碍，Stage1 静态障碍，Stage2+ 动态障碍逐步加入。")
     print("4. 起点/终点采样、障碍物安全区、动态障碍运动、边界反弹均通过。")
-    print("5. lidar 输出 [N, 90]，risk features 输出 [N, 8]。")
+    print("5. lidar 输出 [N, 60]，risk features 输出 [N, 8]。")
     print("6. privileged features 输出 [N, 68]，可供后续 Task3 critic 使用。")
     print("7. success / collision / fallen / out_of_bounds / timeout 终止逻辑均通过。")
     print("8. 下一步可以进入 task3_env.py，把解析导航世界接入真实 Go2 IsaacLab 物理环境。")

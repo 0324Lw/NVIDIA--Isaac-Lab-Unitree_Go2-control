@@ -1,15 +1,21 @@
 # Copyright (c) 2026
-# Unitree Go2 Task3-V3.1: navigation-success oriented obstacle avoidance environment.
+# Unitree Go2 Task3：导航成功导向的动态避障 IsaacLab 环境。
 #
-# Strict refactor notes:
-# 1. This file defines IsaacLab Go2 environment only.
-# 2. It does not start AppLauncher.
-# 3. Analytical navigation world is Task3World.
-# 4. Obstacles are not real prims. Lidar, collision, target, risk, and privileged
-#    features are computed by Task3World GPU tensors.
-# 5. Actor obs = 208 when num_lidar_rays = 60.
-# 6. Privileged obs = 276 = actor obs 208 + world privileged 68.
-# 7. Training frame-stack is handled later in task3_train.py.
+# 本文件只定义 Gymnasium / IsaacLab 环境，不启动 AppLauncher。
+# 训练入口位于 task3_train.py。
+# 模型评估入口位于 task3_model_test.py。
+#
+# 世界建模边界：
+# 1. Task3World 是纯 torch 解析世界，负责目标、障碍物、lidar、碰撞风险和 privileged features。
+# 2. 障碍物不是 Isaac Sim 中的真实 prim，而是 Task3World 内部 GPU 张量。
+# 3. 本环境负责 Go2 机器人控制、reset、step、观测、奖励、终止条件和 info 汇总。
+#
+# 维度约定：
+#   actor 单帧观测维度       = 208
+#   privileged 单帧观测维度  = 276 = actor 208 + world privileged 68
+#   action 维度             = 12
+#   lidar 射线数量           = 60
+#   训练时 frame stack 由 task3_train.py / wrapper 处理。
 
 from __future__ import annotations
 
@@ -81,30 +87,42 @@ def make_go2_task3_scene_cfg(cfg: Task3Config):
 
 
 class Go2Task3Env(gym.Env):
-    """Go2 Task3-V3.1: navigation-success oriented obstacle avoidance.
+    """Go2 Task3-V3.2: navigation-success oriented obstacle avoidance.
 
-    Actor observation layout, dim = 257:
-        base_lin_vel_b       3
-        base_ang_vel_b       3
-        projected_gravity_b  3
-        target_obs           3
-        target_speed         1
-        progress_ema         1
-        q_err               12
-        qd                  12
-        last_action         12
-        action_delta        12
-        foot_contact         4
-        lidar               90
-        lidar_delta         90
-        risk_features        8
-        base_height          1
-        sin_phase            1
-        cos_phase            1
+    Actor observation layout, dim = 208:
+        base_lin_vel_b             3
+        base_ang_vel_b             3
+        projected_gravity_b        3
+        q_err                     12
+        qd                        12
+        last_action               12
+        action_delta              12
+        foot_contact               4
+        base_height                1
+        goal_dir_body              2
+        goal_dist_norm             1
+        goal_log_dist              1
+        heading_sin_cos            2
+        heading_cos                1
+        actual_along_goal          1
+        lateral_vel_to_goal        1
+        target_speed               1
+        desired_speed              1
+        speed_ratio                1
+        progress_step              1
+        progress_ema_norm          1
+        distance_reduction_ratio   1
+        near_goal_flag             1
+        success_radius_norm        1
+        time_fraction              1
+        stuck_timer_norm           1
+        obstacle_summary           7
+        lidar                     60
+        lidar_delta               60
 
-    Privileged obs layout, dim = 325:
-        actor obs           257
-        world privileged     68
+    Privileged obs layout, dim = 276:
+        actor obs                208
+        world privileged          68
     """
 
     metadata = {"render_modes": []}
@@ -225,7 +243,7 @@ class Go2Task3Env(gym.Env):
         self.total_timeout_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
         self.total_out_of_bounds_episodes = torch.zeros((), dtype=torch.float32, device=self.device)
 
-        # V3.1 performance-gated curriculum state.
+        # Task3-V3.2 performance-gated curriculum state.
         # 课程推进使用当前窗口 episode 统计，不使用累计成功率日志。
         floor_k = float(getattr(cfg.world_cfg, "curriculum_resume_k_floor", 0.0))
         self.curriculum_active_stage = int(self.world.stage_from_progress(floor_k))
@@ -405,7 +423,7 @@ class Go2Task3Env(gym.Env):
         print("=" * 120 + "\n")
 
     def _effective_curriculum_steps(self) -> int:
-        """Return curriculum steps with optional resume floor for Task3-V2."""
+        """Return curriculum steps with optional resume floor for Task3-V3.2."""
 
         floor_k = float(getattr(self.cfg.world_cfg, "curriculum_resume_k_floor", 0.0))
         floor_steps = int(floor_k * float(self.cfg.world_cfg.curriculum_total_steps))
@@ -446,7 +464,7 @@ class Go2Task3Env(gym.Env):
         heading_cos: torch.Tensor,
         near_goal_flag: torch.Tensor,
     ) -> None:
-        """Update current-window episode statistics for Task3-V3.1 curriculum."""
+        """Update current-window episode statistics for Task3-V3.2 curriculum."""
 
         done = done.detach().bool()
         if not bool(done.any()):

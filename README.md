@@ -338,10 +338,10 @@ Task3 使用“真实机器人物理 + 解析导航世界”的结构：
  
 ### 观测结构
  
-- 单帧 actor observation：257 维
-- 5 帧堆叠后 actor input：1285 维
+- 单帧 actor observation：208 维
+- 5 帧堆叠后 actor input：1040 维
 - world privileged features：68 维
-- critic input：1353 维
+- critic input：1108 维
  
 ### 常用命令
  
