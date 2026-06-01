@@ -1,3 +1,54 @@
+# Copyright (c) 2026
+# Unitree Go2 Task4: Sim2Real / RMA teacher 强化学习训练入口。
+#
+# 本文件启动 Task4 Sim2Real / RMA teacher 任务的 skrl PPO 训练流程。
+# 本文件会创建 IsaacLab AppLauncher，并在导入 IsaacLab 环境后构建训练环境。
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor history obs = 240
+#   privileged obs = 25
+#   teacher obs = 265
+#   critic obs = 265
+#   action dim = 12
+#
+# 训练入口:
+#   python src/go2_rl/tasks/task4/task4_train.py
+#
+# 工程说明:
+#   Task4 当前训练 teacher policy。
+#   teacher obs 由 actor history 和 privileged obs 拼接得到。
+#   后续 student / adaptation 阶段可只使用 actor history，不直接读取 privileged input。
+#
+# Unitree Go2 Task4: Sim2Real / RMA teacher reinforcement-learning training entry.
+#
+# This file launches the skrl PPO training pipeline for the Task4 Sim2Real / RMA
+# teacher task. It creates IsaacLab AppLauncher and builds the training
+# environment after IsaacLab environment modules are imported.
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor history obs = 240
+#   privileged obs = 25
+#   teacher obs = 265
+#   critic obs = 265
+#   action dim = 12
+#
+# Training entry:
+#   python src/go2_rl/tasks/task4/task4_train.py
+#
+# Engineering notes:
+#   Task4 currently trains the teacher policy.
+#   teacher obs is formed by concatenating actor history and privileged obs.
+#   A later student / adaptation stage can use actor history without directly
+#   reading privileged input.
+
 from __future__ import annotations
 
 import argparse
