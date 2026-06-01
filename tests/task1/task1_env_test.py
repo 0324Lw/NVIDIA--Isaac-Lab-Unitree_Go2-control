@@ -1,7 +1,7 @@
 # Unitree Go2 Task1 environment test.
 #
 # Usage:
-#   cd /home/lw/unitree_go2_isaaclab_rl
+#   cd <repo_root>
 #   python tests/task1/task1_env_test.py --num-envs 64 --steps 300 --headless --device cuda:0
 #
 # AppLauncher must be launched before importing task1_env.py.

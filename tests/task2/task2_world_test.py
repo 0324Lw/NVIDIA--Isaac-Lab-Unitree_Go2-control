@@ -1,7 +1,7 @@
 # Unitree Go2 Task2 world / terrain / curriculum test.
 #
 # Usage:
-#   cd /home/lw/unitree_go2_isaaclab_rl
+#   cd <repo_root>
 #   python tests/task2/task2_world_test.py --num-envs 1000 --test-device cuda:0 --headless
 #
 # Important:

@@ -1,7 +1,7 @@
 # Unitree Go2 Task4 Sim2Real / RMA environment test.
 #
 # Usage:
-#   cd /home/lw/unitree_go2_isaaclab_rl
+#   cd <repo_root>
 #   bash scripts/ubuntu/test_task4_env.sh
 #
 # Important:

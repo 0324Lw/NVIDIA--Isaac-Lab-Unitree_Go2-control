@@ -1,7 +1,7 @@
 # Unitree Go2 Task2 environment test.
 #
 # Usage:
-#   cd /home/lw/unitree_go2_isaaclab_rl
+#   cd <repo_root>
 #   python tests/task2/task2_env_test.py --num-envs 32 --steps 240 --headless --device cuda:0
 #
 # Important:
