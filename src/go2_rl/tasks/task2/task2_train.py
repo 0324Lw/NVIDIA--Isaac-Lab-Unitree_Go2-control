@@ -1,3 +1,56 @@
+# Copyright (c) 2026
+# Unitree Go2 Task2: 多地形运动强化学习训练入口。
+#
+# 本文件启动 Task2 多地形运动任务的 skrl PPO 训练流程。
+# 本文件会创建 IsaacLab AppLauncher，并在导入 IsaacLab 环境后构建训练环境。
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor single obs = 87
+#   actor stacked obs = 435
+#   terrain privileged tail = 91
+#   raw privileged obs = 178
+#   critic obs = 526
+#   action dim = 12
+#
+# 训练入口:
+#   python src/go2_rl/tasks/task2/task2_train.py
+#
+# 工程说明:
+#   Task2 使用任务内 asymmetric frame-stack wrapper。
+#   policy 读取 actor observation history，critic 读取 actor history 和 terrain privileged tail。
+#   terrain privileged tail 只用于 critic，不进入 policy observation。
+#
+# Unitree Go2 Task2: multi-terrain reinforcement-learning training entry.
+#
+# This file launches the skrl PPO training pipeline for Task2 multi-terrain locomotion.
+# It creates IsaacLab AppLauncher and builds the training environment after
+# IsaacLab environment modules are imported.
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor single obs = 87
+#   actor stacked obs = 435
+#   terrain privileged tail = 91
+#   raw privileged obs = 178
+#   critic obs = 526
+#   action dim = 12
+#
+# Training entry:
+#   python src/go2_rl/tasks/task2/task2_train.py
+#
+# Engineering notes:
+#   Task2 uses a task-local asymmetric frame-stack wrapper.
+#   The policy reads actor observation history, while the critic reads actor
+#   history plus the terrain privileged tail. The terrain privileged tail is
+#   used by the critic only and is not part of the policy observation.
+
 from __future__ import annotations
 
 import argparse
@@ -744,7 +797,7 @@ def main():
     print("[INFO] 训练目标：平地 locomotion -> 多地形 rough/slopes/stones/stairs -> 多材质鲁棒行走/奔跑")
     print("[INFO] Actor 输入：87 维本体感觉 × 5 帧堆叠 = 435")
     print("[INFO] Critic 输入：actor_stack 435 + terrain_priv 91 = 526")
-    print("[INFO] 推荐流程：先 smoke，再 laptop 小规模，再 Windows 3090 放大并发。")
+    print("[INFO] 推荐流程：先运行 smoke 入口，再根据显存和吞吐量调整 num-envs。")
     print("[INFO] 日志重点：Fall_Rate / Actual_Vx-Cmd_Vx / Mean_Terrain_Level / Mean_Friction / P_Foot_Slip\n")
 
     last_save = resume_env_steps
