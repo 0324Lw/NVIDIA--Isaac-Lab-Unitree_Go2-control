@@ -1,32 +1,6 @@
+# Python cache / build artifacts
 __pycache__/
 *.py[cod]
-.pytest_cache/
-logs/
-runs/
-outputs/
-checkpoints/
-wandb/
-tensorboard/
-events.out.tfevents.*
-*.pt
-*.pth
-*.ckpt
-*.onnx
-*.npz
-*.npy
-*.pkl
-*.hdf5
-*.h5
-.vscode/
-.idea/
-.DS_Store
-*.tmp
-*.log
-*.bak
-
-# RL_OPEN_SOURCE_SCAFFOLD_IGNORE_BEGIN
-# Python cache
-__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -35,22 +9,28 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+build/
+dist/
 
-# IDE / system
+# IDE / system files
 .vscode/
 .idea/
 .DS_Store
 *.swp
+*.tmp
+*.bak
 
-# Training logs and outputs
+# Training logs and experiment outputs
 logs/
-outputs/
 runs/
+outputs/
+checkpoints/
 wandb/
 tensorboard/
+events.out.tfevents.*
 *.log
 
-# Checkpoints / model weights
+# Model weights / exported engines
 *.pt
 *.pth
 *.ckpt
@@ -61,27 +41,23 @@ tensorboard/
 *.npz
 *.npy
 *.pkl
-*.h5
 *.hdf5
+*.h5
 
-# Isaac / local cache
+# Isaac / local simulator cache
 .cache/
 .cache_isaaclab/
 kit/
 omni.*
 isaacsim.*
 
-# Local environment / private paths
+# Local environment / private path configs
 .env
 *.local.json
+*.local.yaml
+local_paths.yaml
 windows_paths.local.json
-# RL_OPEN_SOURCE_SCAFFOLD_IGNORE_END
 
-# Refactor temporary backups
+# Refactor temporary files
 _refactor_backups/
-docs/refactor_logs/*.patch
-
-# Refactor temporary backups
-_refactor_backups/
-docs/refactor_logs/*.patch
 docs/refactor_logs/
