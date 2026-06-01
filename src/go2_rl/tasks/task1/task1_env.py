@@ -1,12 +1,45 @@
 # Copyright (c) 2026
-# Unitree Go2 Task1: flat-ground locomotion environment.
+# Unitree Go2 Task1: 平地运动 IsaacLab 环境。
 #
-# Strict refactor notes:
-# 1. This file only defines IsaacLab environment logic.
-# 2. It does not start AppLauncher.
-# 3. It exposes single-frame actor obs = 87 and action dim = 12.
-# 4. Training frame stack is handled by common/go2_skrl_wrappers.py.
-# 5. Info values are mostly GPU tensors to reduce CPU synchronization during training.
+# 本文件只定义 Task1 IsaacLab 环境，不启动 AppLauncher。
+# 环境采用 Gymnasium step API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor obs = 87
+#   privileged obs = 0
+#   action dim = 12
+#
+# 训练入口位于 task1_train.py，模型评估入口位于 task1_model_test.py。
+#
+# 工程说明:
+#   Task1 使用平地场景和 Unitree Go2 articulation。
+#   env_origins 用于并行环境的局部坐标基准，使 base height、foot height 和 reset root pose
+#   都相对于各自环境原点计算，避免不同 env 网格位置影响观测和奖励。
+#   info 中保留 GPU tensor，低频日志阶段再转换为标量，以减少 step 内 CPU 同步。
+#
+# Unitree Go2 Task1: flat locomotion IsaacLab environment.
+#
+# This file only defines the Task1 IsaacLab environment and does not launch AppLauncher.
+# The environment follows the Gymnasium step API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor obs = 87
+#   privileged obs = 0
+#   action dim = 12
+#
+# Training entry is task1_train.py, and model evaluation entry is task1_model_test.py.
+#
+# Engineering notes:
+#   Task1 uses a flat-ground scene and the Unitree Go2 articulation.
+#   env_origins provides local coordinate references for parallel environments,
+#   so base height, foot height, and reset root pose are computed relative to
+#   each environment origin rather than affected by grid placement.
+#   info keeps GPU tensors and converts them to scalars only during low-frequency
+#   logging to reduce CPU synchronization inside step.
 
 from __future__ import annotations
 
