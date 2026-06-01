@@ -46,11 +46,11 @@ from go2_rl.tasks.task1.task1_env import Go2Task1Env
 
 
 def print_ok(msg: str) -> None:
-    print(f" ✅ {msg}", flush=True)
+    print(f"[OK] {msg}", flush=True)
 
 
 def print_warn(msg: str) -> None:
-    print(f" ⚠️ {msg}", flush=True)
+    print(f"[WARN] {msg}", flush=True)
 
 
 def assert_finite_tensor(name: str, x: torch.Tensor) -> None:
@@ -436,10 +436,10 @@ def run_tests() -> None:
         print("3. Stage 0 gait reward may be small or zero; this is normal.")
         print("4. Random policy Fall_Rate can be high, but NaN/Inf is not allowed.")
         print("5. Training metrics: Fall_Rate, Episode_Length, Actual_Vx/Cmd_Vx, Contact_Count, P_Foot_Slip.")
-        print("\n✅ Unitree Go2 Task1 environment test completed.")
+        print("\n[OK] Unitree Go2 Task1 environment test completed.")
 
     except Exception as exc:
-        print("\n❌ Unitree Go2 Task1 environment test failed:")
+        print("\n[FAIL] Unitree Go2 Task1 environment test failed:")
         print(type(exc).__name__, ":", exc)
         raise
 

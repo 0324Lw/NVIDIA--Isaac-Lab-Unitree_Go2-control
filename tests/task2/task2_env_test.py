@@ -47,11 +47,11 @@ from go2_rl.tasks.task2.task2_env import Go2Task2Env
 
 
 def print_ok(msg: str) -> None:
-    print(f" ✅ {msg}", flush=True)
+    print(f"[OK] {msg}", flush=True)
 
 
 def print_warn(msg: str) -> None:
-    print(f" ⚠️ {msg}", flush=True)
+    print(f"[WARN] {msg}", flush=True)
 
 
 def heading(title: str) -> None:
@@ -709,10 +709,10 @@ def run_tests() -> None:
         print("3. Random policy Fall_Rate can be high, but NaN/Inf is not allowed.")
         print("4. Key metrics: Actual_Vx/Cmd_Vx, Fall_Rate, Contact_Count, P_Foot_Slip, Mean_Terrain_Level.")
         print("5. If Mean_Terrain_Level never changes during training, inspect terrain curriculum thresholds.")
-        print("\n✅ Unitree Go2 Task2 environment test completed.")
+        print("\n[OK] Unitree Go2 Task2 environment test completed.")
 
     except Exception as exc:
-        print("\n❌ Unitree Go2 Task2 environment test failed:")
+        print("\n[FAIL] Unitree Go2 Task2 environment test failed:")
         print(type(exc).__name__, ":", exc)
         raise
 

@@ -45,11 +45,11 @@ from go2_rl.tasks.task2.task2_world import Task2World, TerrainCurriculum
 
 
 def print_ok(msg: str) -> None:
-    print(f" ✅ {msg}", flush=True)
+    print(f"[OK] {msg}", flush=True)
 
 
 def print_warn(msg: str) -> None:
-    print(f" ⚠️ {msg}", flush=True)
+    print(f"[WARN] {msg}", flush=True)
 
 
 def heading(title: str) -> None:
@@ -725,7 +725,7 @@ def run_tests() -> None:
     if bool(args_cli.scene_test):
         test_optional_scene_instantiation(cfg, world, device)
     else:
-        print("\n⚠️ 已跳过 Isaac Terrain scene 实例化测试。需要测试真实 scene 时运行：")
+        print("\n[WARN] 已跳过 Isaac Terrain scene 实例化测试。需要测试真实 scene 时运行：")
         print("   python tests/task2/task2_world_test.py --scene-test --test-device cuda:0 --headless")
 
     heading("Go2 Task2 World / Terrain / Curriculum 测试全部通过")

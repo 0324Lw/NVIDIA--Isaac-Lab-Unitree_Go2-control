@@ -49,11 +49,11 @@ from go2_rl.tasks.task4.task4_env import Go2Task4Env
 
 
 def print_ok(msg: str) -> None:
-    print(f" ✅ {msg}", flush=True)
+    print(f"[OK] {msg}", flush=True)
 
 
 def print_warn(msg: str) -> None:
-    print(f" ⚠️ {msg}", flush=True)
+    print(f"[WARN] {msg}", flush=True)
 
 
 def heading(title: str) -> None:
@@ -818,7 +818,7 @@ def run_tests() -> None:
         heading("Go2 Task4 Sim2Real / RMA Env 测试全部通过")
 
     except Exception as exc:
-        print("\n❌ Go2 Task4 环境测试失败：")
+        print("\n[FAIL] Go2 Task4 环境测试失败：")
         print(type(exc).__name__, ":", exc)
         raise
 
