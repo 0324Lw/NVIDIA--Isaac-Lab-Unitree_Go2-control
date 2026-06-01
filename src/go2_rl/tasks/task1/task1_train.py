@@ -1,3 +1,50 @@
+# Copyright (c) 2026
+# Unitree Go2 Task1: 平地运动强化学习训练入口。
+#
+# 本文件启动 Task1 平地运动任务的 skrl PPO 训练流程。
+# 本文件会创建 IsaacLab AppLauncher，并在导入 IsaacLab 环境后构建训练环境。
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor single obs = 87
+#   actor stacked obs = 435
+#   critic obs = 435
+#   action dim = 12
+#
+# 训练入口:
+#   python src/go2_rl/tasks/task1/task1_train.py
+#
+# 工程说明:
+#   Task1 使用 Go2FrameStackWrapper 的 stack_actor 模式。
+#   policy 和 critic 都读取 actor observation history，作为后续多地形和导航任务的基础策略。
+#
+# Unitree Go2 Task1: flat locomotion reinforcement-learning training entry.
+#
+# This file launches the skrl PPO training pipeline for Task1 flat locomotion.
+# It creates IsaacLab AppLauncher and builds the training environment after
+# IsaacLab environment modules are imported.
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor single obs = 87
+#   actor stacked obs = 435
+#   critic obs = 435
+#   action dim = 12
+#
+# Training entry:
+#   python src/go2_rl/tasks/task1/task1_train.py
+#
+# Engineering notes:
+#   Task1 uses the stack_actor mode of Go2FrameStackWrapper.
+#   The policy and critic both read actor observation history, forming the
+#   base policy for later multi-terrain and navigation tasks.
+
 from __future__ import annotations
 
 import argparse
