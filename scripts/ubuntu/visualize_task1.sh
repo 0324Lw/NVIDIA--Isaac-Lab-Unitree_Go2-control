@@ -17,7 +17,7 @@
 #   src/go2_rl/tasks/task1/task1_model_test.py
 #
 # 使用方式:
-#   bash scripts/ubuntu/visual/visualize_task1.sh /path/to/go2_task1_model.pt
+#   bash scripts/ubuntu/visualize_task1.sh /path/to/go2_task1_model.pt
 #
 # Unitree Go2 Scripts: Ubuntu Task1 GUI visualization entry.
 #
@@ -36,7 +36,7 @@
 #   src/go2_rl/tasks/task1/task1_model_test.py
 #
 # Usage:
-#   bash scripts/ubuntu/visual/visualize_task1.sh /path/to/go2_task1_model.pt
+#   bash scripts/ubuntu/visualize_task1.sh /path/to/go2_task1_model.pt
 
 set -euo pipefail
 
@@ -45,7 +45,7 @@ source "${SCRIPT_DIR}/../_common.sh"
 
 CKPT="${1:-}"
 START_K="${2:-1.0}"
-go2_require_checkpoint_arg "${CKPT}" "Usage: bash scripts/ubuntu/visual/visualize_task1.sh /path/to/go2_task1_model.pt [start_k]"
+go2_require_checkpoint_arg "${CKPT}" "Usage: bash scripts/ubuntu/visualize_task1.sh /path/to/go2_task1_model.pt [start_k]"
 
 go2_prepare_runtime
 export DISPLAY="${DISPLAY:-:0}"

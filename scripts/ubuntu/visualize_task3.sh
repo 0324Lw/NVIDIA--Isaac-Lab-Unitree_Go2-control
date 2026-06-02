@@ -18,8 +18,8 @@
 #   src/go2_rl/tasks/task3/task3_model_test.py
 #
 # 使用方式:
-#   bash scripts/ubuntu/visual/visualize_task3.sh /path/to/go2_task3_model.pt
-#   bash scripts/ubuntu/visual/visualize_task3.sh /path/to/go2_task3_model.pt 0.12
+#   bash scripts/ubuntu/visualize_task3.sh /path/to/go2_task3_model.pt
+#   bash scripts/ubuntu/visualize_task3.sh /path/to/go2_task3_model.pt 0.12
 #
 # Unitree Go2 Scripts: Ubuntu Task3 GUI visualization entry.
 #
@@ -39,8 +39,8 @@
 #   src/go2_rl/tasks/task3/task3_model_test.py
 #
 # Usage:
-#   bash scripts/ubuntu/visual/visualize_task3.sh /path/to/go2_task3_model.pt
-#   bash scripts/ubuntu/visual/visualize_task3.sh /path/to/go2_task3_model.pt 0.12
+#   bash scripts/ubuntu/visualize_task3.sh /path/to/go2_task3_model.pt
+#   bash scripts/ubuntu/visualize_task3.sh /path/to/go2_task3_model.pt 0.12
 
 set -euo pipefail
 
@@ -49,7 +49,7 @@ source "${SCRIPT_DIR}/../_common.sh"
 
 CKPT="${1:-}"
 START_K="${2:-1.0}"
-go2_require_checkpoint_arg "${CKPT}" "Usage: bash scripts/ubuntu/visual/visualize_task3.sh /path/to/go2_task3_model.pt [start_k]"
+go2_require_checkpoint_arg "${CKPT}" "Usage: bash scripts/ubuntu/visualize_task3.sh /path/to/go2_task3_model.pt [start_k]"
 
 go2_prepare_runtime
 export DISPLAY="${DISPLAY:-:0}"

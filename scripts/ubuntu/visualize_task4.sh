@@ -18,8 +18,8 @@
 #   src/go2_rl/tasks/task4/task4_model_test.py
 #
 # 使用方式:
-#   bash scripts/ubuntu/visual/visualize_task4.sh /path/to/go2_task4_teacher_model.pt
-#   bash scripts/ubuntu/visual/visualize_task4.sh /path/to/go2_task4_teacher_model.pt 0.30
+#   bash scripts/ubuntu/visualize_task4.sh /path/to/go2_task4_teacher_model.pt
+#   bash scripts/ubuntu/visualize_task4.sh /path/to/go2_task4_teacher_model.pt 0.30
 #
 # Unitree Go2 Scripts: Ubuntu Task4 GUI visualization entry.
 #
@@ -39,8 +39,8 @@
 #   src/go2_rl/tasks/task4/task4_model_test.py
 #
 # Usage:
-#   bash scripts/ubuntu/visual/visualize_task4.sh /path/to/go2_task4_teacher_model.pt
-#   bash scripts/ubuntu/visual/visualize_task4.sh /path/to/go2_task4_teacher_model.pt 0.30
+#   bash scripts/ubuntu/visualize_task4.sh /path/to/go2_task4_teacher_model.pt
+#   bash scripts/ubuntu/visualize_task4.sh /path/to/go2_task4_teacher_model.pt 0.30
 
 set -euo pipefail
 
@@ -49,7 +49,7 @@ source "${SCRIPT_DIR}/../_common.sh"
 
 CKPT="${1:-}"
 START_K="${2:-1.0}"
-go2_require_checkpoint_arg "${CKPT}" "Usage: bash scripts/ubuntu/visual/visualize_task4.sh /path/to/go2_task4_teacher_model.pt [start_k]"
+go2_require_checkpoint_arg "${CKPT}" "Usage: bash scripts/ubuntu/visualize_task4.sh /path/to/go2_task4_teacher_model.pt [start_k]"
 
 go2_prepare_runtime
 export DISPLAY="${DISPLAY:-:0}"
