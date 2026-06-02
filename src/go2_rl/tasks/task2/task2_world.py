@@ -1,13 +1,47 @@
 # Copyright (c) 2026
-# Unitree Go2 Task2: multi-terrain / multi-material world model.
+# Unitree Go2 Task2: 多地形世界模型。
 #
-# Strict refactor notes:
-# 1. This file may import isaaclab.terrains.
-# 2. Therefore test / env entry must start AppLauncher before importing this file.
-# 3. This file only owns world-level logic: TerrainGeneratorCfg, terrain index mapping,
-#    origin mapping, material sampling, height scan, privileged terrain features,
-#    and terrain curriculum.
-# 4. It does not create Go2 robot, reward, PPO, or training logic.
+# 本文件定义 Task2 的世界级地形逻辑，不创建 Go2 机器人、不计算奖励、不启动训练流程。
+# 主要职责:
+#   1. 构建 TerrainGeneratorCfg；
+#   2. 管理 terrain type / level 与生成器索引的映射；
+#   3. 管理逻辑 origin 与 TerrainImporter env_origins；
+#   4. 采样地形材料参数和高度扫描；
+#   5. 构造 terrain privileged features；
+#   6. 更新多地形课程。
+#
+# 观测维度:
+#   terrain privileged tail = 91
+#
+# 训练入口位于 task2_train.py，模型评估入口位于 task2_model_test.py。
+#
+# 工程说明:
+#   TerrainImporter 生成的 env_origins 是实际仿真地形块的原点。
+#   当 env_origins 可用时，height scan 和 reset origin 使用该值；否则回退到逻辑 origin。
+#   这样可以同时兼容 IsaacLab 地形生成器和纯解析地形回退逻辑。
+#
+# Unitree Go2 Task2: multi-terrain world model.
+#
+# This file defines Task2 world-level terrain logic. It does not create the Go2 robot,
+# compute rewards, or launch training.
+# Main responsibilities:
+#   1. Build TerrainGeneratorCfg;
+#   2. Manage terrain type / level to generator-index mapping;
+#   3. Manage logical origins and TerrainImporter env_origins;
+#   4. Sample terrain material parameters and height scans;
+#   5. Build terrain privileged features;
+#   6. Update the multi-terrain curriculum.
+#
+# Observation dimensions:
+#   terrain privileged tail = 91
+#
+# Training entry is task2_train.py, and model evaluation entry is task2_model_test.py.
+#
+# Engineering notes:
+#   TerrainImporter env_origins are the actual origins of simulated terrain tiles.
+#   When env_origins are available, height scans and reset origins use them; otherwise
+#   the world falls back to logical origins. This keeps compatibility with both
+#   IsaacLab terrain generation and analytical terrain fallback logic.
 
 from __future__ import annotations
 
