@@ -16,7 +16,7 @@
 # Main responsibilities:
 #   1. Accept a user-provided checkpoint or reuse the automatic checkpoint discovery in eval_task1.ps1;
 #   2. Call scripts/windows/eval_task1.ps1;
-#   3. Do not pass -HeadlessEval by default, so Isaac Sim runs in GUI mode.
+#   3. Keep -HeadlessEval off by default so Isaac Sim runs in GUI mode.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/windows/visualize_task1.ps1 -IsaacLabRoot <path-to-IsaacLab> -Checkpoint <checkpoint>

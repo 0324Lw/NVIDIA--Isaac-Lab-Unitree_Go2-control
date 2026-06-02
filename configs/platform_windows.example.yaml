@@ -1,0 +1,32 @@
+# Copyright (c) 2026
+# Unitree Go2 RL: Windows platform example configuration.
+#
+# 本文件提供 Windows 平台示例配置，只包含可公开的占位路径和通用运行建议。
+# 使用时请复制为本地私有配置文件，并按自己的 IsaacLab / Isaac Sim 路径修改。
+#
+# Unitree Go2 RL: Windows platform example configuration.
+#
+# This file provides a Windows platform example with public placeholder paths and
+# generic runtime suggestions. Copy it to a local private config file and edit the
+# paths for your IsaacLab / Isaac Sim installation.
+
+platform:
+  name: "windows_generic"
+  os: "windows"
+  device: "cuda:0"
+
+paths:
+  project_root: "C:\\path\\to\\unitree_go2_isaaclab_rl"
+  isaaclab_root: "C:\\path\\to\\IsaacLab"
+  isaac_python: "C:\\path\\to\\IsaacLab\\_isaac_sim\\python.bat"
+  log_root: "C:\\path\\to\\unitree_go2_isaaclab_rl\\logs"
+
+runtime:
+  powershell_entry: "pwsh"
+  headless_default: true
+
+training:
+  smoke_num_envs: 16
+  default_num_envs: 1024
+  default_total_env_steps: 100000000
+  notes: "Adjust num_envs and total_env_steps according to available GPU memory and throughput."

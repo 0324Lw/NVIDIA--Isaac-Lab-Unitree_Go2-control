@@ -1,14 +1,21 @@
-# Copy this file to local_paths.yaml if you want to keep local machine paths outside scripts.
-# local_paths.yaml should be ignored by git in a public repository.
+# Copyright (c) 2026
+# Unitree Go2 RL: local private path example.
+#
+# 本文件是本地路径配置示例，不应直接保存个人绝对路径。
+# 使用时复制为 local_paths.yaml，并在本机填写真实路径。
+#
+# Unitree Go2 RL: local private path example.
+#
+# This file is an example for local path configuration with public placeholder
+# paths. Copy it to local_paths.yaml and fill in real paths on your own machine.
 
 ubuntu:
-  project_root: "/home/<user>/unitree_go2_isaaclab_rl"
-  isaaclab_root: "/home/<user>/IsaacLab"
-  conda_env: "isaaclab"
-  log_root: "/home/<user>/unitree_go2_isaaclab_rl/logs"
+  project_root: "/path/to/unitree_go2_isaaclab_rl"
+  isaaclab_root: "/path/to/IsaacLab"
+  log_root: "/path/to/unitree_go2_isaaclab_rl/logs"
 
 windows:
-  project_root: "G:\\rt_isaaclab_ws\\projects\\unitree_go2_isaaclab_rl"
-  isaaclab_root: "G:\\rt_isaaclab_ws\\repos\\IsaacLab_v2.3.2"
-  isaac_python: "G:\\rt_isaaclab_ws\\repos\\IsaacLab_v2.3.2\\_isaac_sim\\python.bat"
-  log_root: "G:\\rt_isaaclab_ws\\logs\\unitree_go2_isaaclab_rl"
+  project_root: "C:\\path\\to\\unitree_go2_isaaclab_rl"
+  isaaclab_root: "C:\\path\\to\\IsaacLab"
+  isaac_python: "C:\\path\\to\\IsaacLab\\_isaac_sim\\python.bat"
+  log_root: "C:\\path\\to\\unitree_go2_isaaclab_rl\\logs"

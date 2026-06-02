@@ -20,7 +20,7 @@
 #   2. Call scripts/windows/eval_task3.ps1;
 #   3. Support StartK for evaluating a specific curriculum progress point;
 #   4. Use the current stable Task3 dimensions: actor obs = 208, privileged obs = 276, lidar rays = 60;
-#   5. Do not pass -HeadlessEval by default, so Isaac Sim runs in GUI mode.
+#   5. Keep -HeadlessEval off by default so Isaac Sim runs in GUI mode.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/windows/visualize_task3.ps1 -IsaacLabRoot <path-to-IsaacLab> -Checkpoint <checkpoint>

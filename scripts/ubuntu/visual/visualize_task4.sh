@@ -29,7 +29,7 @@
 #   2. Set DISPLAY and the project PYTHONPATH;
 #   3. Call the Task4 Python evaluation entry task4_model_test.py;
 #   4. Use the current stable Task4 dimensions: actor history = 240, privileged obs = 25, teacher obs = 265;
-#   5. Use GUI by default and do not pass --headless-eval.
+#   5. Use GUI by default; --headless-eval is reserved for terminal-only evaluation.
 #
 # Arguments:
 #   $1 required, Task4 teacher checkpoint path;

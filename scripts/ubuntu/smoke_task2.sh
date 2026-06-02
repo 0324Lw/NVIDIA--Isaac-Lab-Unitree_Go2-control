@@ -6,7 +6,7 @@
 # 主要用途:
 #   1. 检查 Task2 terrain、privileged obs、skrl PPO 训练链路是否可以正常启动；
 #   2. 使用较小 num-envs 和 total-env-steps，避免误启动大规模训练；
-#   3. 不要求提供 Task1 checkpoint，便于开源用户先验证基础运行环境。
+#   3. Task1 checkpoint 为可选项，便于开源用户先验证基础运行环境。
 #
 # 本脚本调用:
 #   src/go2_rl/tasks/task2/task2_train.py
@@ -20,7 +20,7 @@
 # Main purposes:
 #   1. Check whether the Task2 terrain, privileged obs, and skrl PPO training pipeline can start correctly;
 #   2. Use small num-envs and total-env-steps to avoid accidentally launching a large training run;
-#   3. Do not require a Task1 checkpoint so open-source users can validate the basic runtime first.
+#   3. Treat the Task1 checkpoint as optional so open-source users can validate the basic runtime first.
 #
 # This script calls:
 #   src/go2_rl/tasks/task2/task2_train.py

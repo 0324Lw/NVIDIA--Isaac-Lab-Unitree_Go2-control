@@ -26,7 +26,7 @@
 #   1. Check the checkpoint argument;
 #   2. Set DISPLAY and the project PYTHONPATH;
 #   3. Call the Task1 Python evaluation entry task1_model_test.py;
-#   4. Use GUI by default and do not pass --headless-eval.
+#   4. Use GUI by default; --headless-eval is reserved for terminal-only evaluation.
 #
 # Arguments:
 #   $1 required, Task1 checkpoint path;

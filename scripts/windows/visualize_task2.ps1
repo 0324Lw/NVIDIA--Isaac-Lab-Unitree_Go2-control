@@ -18,7 +18,7 @@
 #   1. Accept a user-provided checkpoint or reuse the automatic checkpoint discovery in eval_task2.ps1;
 #   2. Call scripts/windows/eval_task2.ps1;
 #   3. Support StartK for evaluating a specific curriculum progress point;
-#   4. Do not pass -HeadlessEval by default, so Isaac Sim runs in GUI mode.
+#   4. Keep -HeadlessEval off by default so Isaac Sim runs in GUI mode.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/windows/visualize_task2.ps1 -IsaacLabRoot <path-to-IsaacLab> -Checkpoint <checkpoint>

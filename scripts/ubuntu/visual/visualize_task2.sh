@@ -29,7 +29,7 @@
 #   2. Set DISPLAY and the project PYTHONPATH;
 #   3. Call the Task2 Python evaluation entry task2_model_test.py;
 #   4. Support start_k for evaluating a specific curriculum progress point;
-#   5. Use GUI by default and do not pass --headless-eval.
+#   5. Use GUI by default; --headless-eval is reserved for terminal-only evaluation.
 #
 # Arguments:
 #   $1 required, Task2 checkpoint path;

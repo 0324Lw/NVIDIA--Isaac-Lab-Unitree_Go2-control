@@ -29,7 +29,7 @@
 #   2. Set DISPLAY and the project PYTHONPATH;
 #   3. Call the Task3 Python evaluation entry task3_model_test.py;
 #   4. Use the current stable Task3 dimensions: actor obs = 208, privileged obs = 276, lidar rays = 60;
-#   5. Use GUI by default and do not pass --headless-eval.
+#   5. Use GUI by default; --headless-eval is reserved for terminal-only evaluation.
 #
 # Arguments:
 #   $1 required, Task3 checkpoint path;

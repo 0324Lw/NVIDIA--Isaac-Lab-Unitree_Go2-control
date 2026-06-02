@@ -20,7 +20,7 @@
 #   2. Call scripts/windows/eval_task4.ps1;
 #   3. Support StartK for evaluating a specific curriculum progress point;
 #   4. Use the current stable Task4 dimensions: actor history = 240, privileged obs = 25, teacher obs = 265;
-#   5. Do not pass -HeadlessEval by default, so Isaac Sim runs in GUI mode.
+#   5. Keep -HeadlessEval off by default so Isaac Sim runs in GUI mode.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/windows/visualize_task4.ps1 -IsaacLabRoot <path-to-IsaacLab> -Checkpoint <checkpoint>

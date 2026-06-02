@@ -1,0 +1,31 @@
+# Copyright (c) 2026
+# Unitree Go2 RL: Ubuntu platform example configuration.
+#
+# 本文件提供 Ubuntu 平台示例配置，只包含可公开的占位路径和通用运行建议。
+# 使用时请复制为本地私有配置文件，并按自己的机器路径修改。
+#
+# Unitree Go2 RL: Ubuntu platform example configuration.
+#
+# This file provides a Ubuntu platform example with public placeholder paths and
+# generic runtime suggestions. Copy it to a local private config file and edit the
+# paths for your own machine.
+
+platform:
+  name: "ubuntu_generic"
+  os: "ubuntu"
+  device: "cuda:0"
+
+paths:
+  project_root: "/path/to/unitree_go2_isaaclab_rl"
+  log_root: "/path/to/unitree_go2_isaaclab_rl/logs"
+  isaaclab_root_hint: "/path/to/IsaacLab"
+
+runtime:
+  python_entry: "python"
+  headless_default: true
+
+training:
+  smoke_num_envs: 16
+  default_num_envs: 512
+  default_total_env_steps: 100000000
+  notes: "Adjust num_envs and total_env_steps according to available GPU memory and throughput."
