@@ -20,8 +20,8 @@
 
 | Scene | Preview |
 |---|---|
-| 平地 / 多地形运动 | |
-| 导航 / 避障 / 抗扰 | 可将评估录制的 GIF 放入 `assets/gifs/` 后在此处展示。 |
+| 平地 / 多地形运动 | ![多地形运动](assets/gifs/task1.gif) |
+| 导航 / 避障 / 抗扰 | ![导航避障](assets/gifs/task3.png) |
 
 ---
 
