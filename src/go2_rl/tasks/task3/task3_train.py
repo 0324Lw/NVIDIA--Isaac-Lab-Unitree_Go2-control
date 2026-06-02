@@ -881,7 +881,7 @@ def _try_set_policy_log_std(policy, value: float) -> bool:
 
 
 def load_actor_warm_start(models: Dict[str, Any], path: str, device: str, label: str, pretrained_log_std: float) -> bool:
-    # Task3-Navigation-V3 uses a new actor observation layout and must be
+    # Task3-Navigation-V3 uses a new actor observation layout and is
     # trained from scratch. Keep this function as a compatibility stub so old
     # command lines fail safely instead of silently loading incompatible priors.
     if not path:

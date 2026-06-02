@@ -379,7 +379,7 @@ class Task2World:
             slope = params["slope"][mask].unsqueeze(-1)
             levels = terrain_levels[mask]
             direction = torch.where((levels % 2) == 0, 1.0, -1.0).to(self.device).unsqueeze(-1)
-            # Important: direction must be [N, 1], not [N], otherwise it broadcasts to [N, N].
+            # Keep direction as [N, 1] instead of [N], because [N] broadcasts to [N, N].
             height[mask] = direction * slope * x[mask]
 
         # 2 stepping stones / random grid

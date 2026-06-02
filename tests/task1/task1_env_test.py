@@ -467,7 +467,7 @@ def run_tests() -> None:
 
         print("Go2 Task1 pre-training checklist:")
         print("1. action_dim 期望为 12，obs_dim 期望为 87。")
-        print("2. foot contact shape must be [num_envs, 4].")
+        print("2. foot contact shape 期望为 [num_envs, 4]。")
         print("3. Stage 0 gait reward may be small or zero; this is normal.")
         print("4. Random policy Fall_Rate can be high, but NaN/Inf is not allowed.")
         print("5. Training metrics: Fall_Rate, Episode_Length, Actual_Vx/Cmd_Vx, Contact_Count, P_Foot_Slip.")
