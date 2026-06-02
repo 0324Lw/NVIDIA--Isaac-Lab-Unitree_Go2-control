@@ -1,13 +1,36 @@
-# Unitree Go2 Task3：纯 torch 解析世界白盒测试。
+# Copyright (c) 2026
+# Unitree Go2 Task3: 解析式导航避障世界模型白盒测试。
 #
-# 使用方式：
-#   cd <repo_root>
-#   python tests/task3/task3_world_test.py --num-envs 2048 --test-device cuda:0
+# 本文件用于检查 Task3World 的目标采样、静态/动态障碍物、解析 lidar、risk features、
+# termination 事件和 world privileged features。
 #
-# 测试边界：
-# 1. Task3World 是纯 torch 解析世界，不允许 import IsaacLab。
-# 2. 本测试不启动 AppLauncher，不依赖 headless / GUI。
-# 3. 本测试覆盖课程阶段、reset 采样、障碍物安全区、动态障碍运动、lidar 和 privileged features。
+# 测试入口:
+#   bash scripts/ubuntu/test_task3_world.sh
+#
+# 观测维度:
+#   lidar rays = 60
+#   world privileged tail = 68
+#
+# 工程说明:
+#   Task3World 是纯 torch 解析世界，不依赖 IsaacLab，不生成 obstacle prim。
+#   compute_lidar_tensors 是 full-batch API，因为 obstacle tensor 以 [num_envs, ...] 形式保存。
+#
+# Unitree Go2 Task3: analytical navigation and obstacle-avoidance world-model white-box test.
+#
+# This file checks Task3World goal sampling, static/dynamic obstacles, analytical lidar,
+# risk features, termination events, and world privileged features.
+#
+# Test entry:
+#   bash scripts/ubuntu/test_task3_world.sh
+#
+# Observation dimensions:
+#   lidar rays = 60
+#   world privileged tail = 68
+#
+# Engineering notes:
+#   Task3World is a pure-torch analytical world. It does not depend on IsaacLab and
+#   does not spawn obstacle prims. compute_lidar_tensors is a full-batch API because
+#   obstacle tensors are stored as [num_envs, ...].
 
 from __future__ import annotations
 
@@ -761,7 +784,7 @@ def test_random_rollout(cfg: Task3WorldCfg, world: Task3World, device: str, num_
             robot_pos[done_ids, 2] = 0.0
             robot_yaw[done_ids] = 0.0
             # Task3World stores obstacle tensors as full-batch tensors [num_envs, ...].
-            # compute_lidar_tensors is therefore a full-batch API. Do not call it with
+            # compute_lidar_tensors is therefore a full-batch API. The refresh path uses
             # robot_pos[done_ids], otherwise ray_dir batch becomes [done_count, ...]
             # while obstacle tensors remain [num_envs, ...], causing torch.bmm batch mismatch.
             refreshed_lidar = world.compute_lidar_tensors(

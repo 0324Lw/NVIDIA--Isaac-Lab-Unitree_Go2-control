@@ -1,13 +1,51 @@
-# Unitree Go2 Task3：IsaacLab 环境集成测试。
+# Copyright (c) 2026
+# Unitree Go2 Task3: 导航避障环境集成测试。
 #
-# 使用方式：
-#   cd <repo_root>
+# 本文件用于检查 Task3 IsaacLab 环境的初始化、观测切片、world privileged features、
+# lidar / risk / target 接口、reset 对齐、强制事件和随机 rollout 数值稳定性。
+#
+# 测试入口:
 #   bash scripts/ubuntu/test_task3_env.sh
 #
-# 测试边界：
-# 1. task3_env.py 依赖 IsaacLab / pxr 模块。
-# 2. 因此必须先启动 AppLauncher，再 import Go2Task3Env。
-# 3. 本测试覆盖环境初始化、obs / privileged obs 维度、reset、step、终止条件和随机 rollout。
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor obs = 208
+#   privileged obs = 276
+#   world privileged tail = 68
+#   lidar rays = 60
+#   action dim = 12
+#
+# 工程说明:
+#   IsaacLab / pxr 依赖模块在 AppLauncher 启动后导入。
+#   测试重点保护 Task3 的 208 / 276 / 68 / 60 维度和解析 world tensor 接口。
+#
+# Unitree Go2 Task3: navigation and obstacle-avoidance environment integration test.
+#
+# This file checks Task3 IsaacLab environment initialization, observation slices,
+# world privileged features, lidar / risk / target interfaces, reset alignment,
+# forced events, and random-rollout numerical stability.
+#
+# Test entry:
+#   bash scripts/ubuntu/test_task3_env.sh
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor obs = 208
+#   privileged obs = 276
+#   world privileged tail = 68
+#   lidar rays = 60
+#   action dim = 12
+#
+# Engineering notes:
+#   IsaacLab / pxr dependent modules are imported after AppLauncher starts.
+#   The test protects Task3 dimensions 208 / 276 / 68 / 60 and analytical world
+#   tensor interfaces.
 
 from __future__ import annotations
 
@@ -832,9 +870,9 @@ def run_tests() -> None:
         print_summary_table(summarize_records(records))
 
         print("Go2 Task3 training pre-check guide:")
-        print("1. actor obs 必须为 208，privileged obs 必须为 276。")
-        print("2. lidar 和 lidar_delta 均应为 60 维，risk feature 应为 8 维。")
-        print("3. 随机策略下 collision / fall 可以出现，但不能出现 NaN/Inf。")
+        print("1. actor obs 期望为 208，privileged obs 期望为 276。")
+        print("2. lidar 和 lidar_delta 期望为 60 维，risk feature 期望为 8 维。")
+        print("3. 随机策略下 collision / fall 属于可接受事件，数值稳定性要求为无 NaN/Inf。")
         print("4. success 在随机策略下很低是正常的。")
         print("5. 训练时重点看 Progress_Step、Distance_To_Goal、Success_Rate、Collision_Rate、Fall_Rate。")
         print("6. Task3 正式训练建议使用 Task1 或 Task2 actor warm-start。")

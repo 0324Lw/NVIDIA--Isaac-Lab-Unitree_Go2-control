@@ -1,12 +1,50 @@
-# Unitree Go2 Task4 Sim2Real / RMA environment test.
+# Copyright (c) 2026
+# Unitree Go2 Task4: Sim2Real / RMA teacher 环境集成测试。
 #
-# Usage:
-#   cd <repo_root>
+# 本文件用于检查 Task4 IsaacLab 环境的初始化、teacher obs、actor history、privileged obs、
+# teacher_mode 切换、domain randomization、强制事件和随机 rollout 数值稳定性。
+#
+# 测试入口:
 #   bash scripts/ubuntu/test_task4_env.sh
 #
-# Important:
-#   task4_env.py imports IsaacLab / pxr dependent modules.
-#   Therefore AppLauncher must be launched before importing Go2Task4Env.
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   single actor obs = 48
+#   actor history obs = 240
+#   privileged obs = 25
+#   teacher obs = 265
+#   action dim = 12
+#
+# 工程说明:
+#   IsaacLab / pxr 依赖模块在 AppLauncher 启动后导入。
+#   测试重点保护 teacher obs = actor history 240 + privileged obs 25 的布局。
+#
+# Unitree Go2 Task4: Sim2Real / RMA teacher environment integration test.
+#
+# This file checks Task4 IsaacLab environment initialization, teacher obs, actor history,
+# privileged obs, teacher_mode switching, domain randomization, forced events, and
+# random-rollout numerical stability.
+#
+# Test entry:
+#   bash scripts/ubuntu/test_task4_env.sh
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   single actor obs = 48
+#   actor history obs = 240
+#   privileged obs = 25
+#   teacher obs = 265
+#   action dim = 12
+#
+# Engineering notes:
+#   IsaacLab / pxr dependent modules are imported after AppLauncher starts.
+#   The test protects the teacher obs layout: actor history 240 + privileged obs 25.
 
 from __future__ import annotations
 
@@ -808,10 +846,10 @@ def run_tests() -> None:
         print_summary_table(summarize_records(records))
 
         print("Go2 Task4 training pre-check guide:")
-        print("1. teacher obs 必须为 265 = actor_history 240 + privileged 25。")
-        print("2. actor single obs 必须为 48，frame_stack=5 后 actor_history=240。")
+        print("1. teacher obs 期望为 265 = actor_history 240 + privileged 25。")
+        print("2. actor single obs 期望为 48，frame_stack=5 后 actor_history=240。")
         print("3. privileged obs 应包含 friction、payload、COM shift、motor strength、push force。")
-        print("4. 随机策略下 fall 可以出现，但不能出现 NaN/Inf。")
+        print("4. 随机策略下 fall 属于可接受事件，数值稳定性要求为无 NaN/Inf。")
         print("5. Stage0 没有 push/payload/motor degradation，后续 stage 逐步加入扰动。")
         print("6. 训练时重点看 Cmd_Vx/Actual_Vx、Tracking_Error、Fall_Rate、Push_Active_Rate、Motor_Strength_Min。")
 

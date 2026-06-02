@@ -1,10 +1,45 @@
-# Unitree Go2 Task1 environment test.
+# Copyright (c) 2026
+# Unitree Go2 Task1: 平地运动环境集成测试。
 #
-# Usage:
-#   cd <repo_root>
-#   python tests/task1/task1_env_test.py --num-envs 64 --steps 300 --headless --device cuda:0
+# 本文件用于检查 Task1 IsaacLab 环境的初始化、观测维度、课程采样、接触传感器、
+# 奖励项和随机 rollout 数值稳定性。
 #
-# AppLauncher must be launched before importing task1_env.py.
+# 测试入口:
+#   bash scripts/ubuntu/test_task1_env.sh
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor obs = 87
+#   privileged obs = 0
+#   action dim = 12
+#
+# 工程说明:
+#   IsaacLab / pxr 依赖模块在 AppLauncher 启动后导入。
+#   env_origins 用于检查 root pose 与并行环境局部原点的对齐关系。
+#
+# Unitree Go2 Task1: flat locomotion environment integration test.
+#
+# This file checks Task1 IsaacLab environment initialization, observation dimensions,
+# curriculum sampling, contact sensors, reward terms, and random-rollout numerical stability.
+#
+# Test entry:
+#   bash scripts/ubuntu/test_task1_env.sh
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor obs = 87
+#   privileged obs = 0
+#   action dim = 12
+#
+# Engineering notes:
+#   IsaacLab / pxr dependent modules are imported after AppLauncher starts.
+#   env_origins is used to check root-pose alignment with each parallel environment origin.
 
 from __future__ import annotations
 
@@ -431,7 +466,7 @@ def run_tests() -> None:
         print_summary_table(summarize_records(records))
 
         print("Go2 Task1 pre-training checklist:")
-        print("1. action_dim must be 12, obs_dim must be 87.")
+        print("1. action_dim 期望为 12，obs_dim 期望为 87。")
         print("2. foot contact shape must be [num_envs, 4].")
         print("3. Stage 0 gait reward may be small or zero; this is normal.")
         print("4. Random policy Fall_Rate can be high, but NaN/Inf is not allowed.")
