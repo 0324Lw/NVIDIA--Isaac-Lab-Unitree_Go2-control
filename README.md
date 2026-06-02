@@ -1,4 +1,4 @@
-# 🐕 基于 NVIDIA Isaac Lab 的 Unitree Go2 四足机器狗强化学习控制项目
+# 🐕 基于 NVIDIA Isaac Lab 的 Unitree Go2 四足机器狗RL控制
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -7,9 +7,12 @@
 ![skrl](https://img.shields.io/badge/RL-skrl%20PPO-purple)
 ![OS](https://img.shields.io/badge/OS-Ubuntu%20%7C%20Windows-green)
 
-本项目是一个基于 NVIDIA Isaac Lab 的 Unitree Go2 四足机器人强化学习训练工程。Isaac Lab 基于 Isaac Sim，提供高并发物理仿真、机器人资产、传感器接口和强化学习任务构建能力；Unitree Go2 是 12 自由度四足机器人，适合作为运动控制、导航避障和 Sim2Real 研究对象。项目包含 4 个递进任务：平地速度跟踪、多地形运动、自主导航与避障、Sim2Real / RMA 抗扰训练。
+本项目是一个基于 NVIDIA Isaac Lab 的 Unitree Go2 四足机器人强化学习训练工程。Isaac Lab 基于 Isaac Sim，提供高并发物理仿真、机器人资产、传感器接口和强化学习任务构建能力；Unitree Go2 是 12 自由度四足机器人，它非常适合作为利用RL进行运动控制、导航避障和 Sim2Real 研究对象，如果你想从事机器人控制领域，机器狗是非常适合你进行前置学习的一个模型。本项目针对机器狗设计了 4 个递进的任务：平地速度跟踪、多地形运动、自主导航与避障、Sim2Real / RMA 抗扰训练，每一个项目都可以进行扩展和调试。
 
-本仓库重点关注完整训练链路的可复现组织方式：从任务配置、环境构建、世界模型、测试脚本、训练入口、评估入口到日志与 checkpoint 管理，尽量将每个模块的职责拆清楚。项目不追求单一固定最优策略，而是提供一个可继续扩展的 Isaac Lab 四足机器人强化学习工程基础，便于开展 locomotion、terrain curriculum、navigation、obstacle avoidance、domain randomization 和 RMA teacher policy 等方向实验。
+本仓库提供了一个模块化的训练链路：从任务配置、环境构建、世界模型、测试脚本、训练入口、评估入口到日志与 checkpoint 管理。为想继续深入研究或扩展领域的用户提供一个可继续扩展的 Isaac Lab 四足机器人强化学习工程基础，便于开展 locomotion、terrain curriculum、navigation、obstacle avoidance、domain randomization 和 RMA teacher policy 等方向实验。但要注意的是项目框架并不是完美的，奖励函数/课程设计/训练方法还需要依据自己的需求进行反馈微调，若有问题，请依据最下方的联系方式联系项目作者。
+
+该项目可用于：学习研究/课设扩展/简历项目/论文复现等。
+
 
 ---
 
@@ -17,7 +20,7 @@
 
 | Scene | Preview |
 |---|---|
-| 平地 / 多地形运动 | 可将训练录制的 GIF 放入 `assets/gifs/` 后在此处展示。 |
+| 平地 / 多地形运动 ||
 | 导航 / 避障 / 抗扰 | 可将评估录制的 GIF 放入 `assets/gifs/` 后在此处展示。 |
 
 ---
@@ -189,8 +192,8 @@ unitree_go2_isaaclab_rl/
 
 | 目录 / 文件 | 说明 |
 |---|---|
-| `assets/` | 展示素材目录，包含 GIF、运动文件、USD 资源说明。 |
-| `configs/` | 任务配置和平台示例配置。`local_paths.example.yaml` 用于说明本地路径写法，`platform_*.example.yaml` 用于说明 Ubuntu / Windows 平台配置。 |
+| `assets/` | 素材目录，可以存放 GIF、运动文件、USD 等资源（本项目中暂未有相关文件）。 |
+| `configs/` | 任务配置和平台示例配置。用于说明 Ubuntu / Windows 平台配置。 |
 | `docs/` | 专题文档，包括项目概览、任务设计、训练说明、测试记录、路径配置和故障排查。 |
 | `scripts/ubuntu/` | Ubuntu 下的环境检查、world/env 测试、smoke training、正式训练、模型评估和可视化脚本。 |
 | `scripts/windows/` | Windows 下的环境检查、任务检查、smoke training、正式训练、模型评估和可视化脚本。 |
@@ -205,7 +208,7 @@ unitree_go2_isaaclab_rl/
 
 ### 基础运行配置
 
-用于环境检查、world 测试、env 测试、smoke training 和低并发调试：
+基础配置建议参考IsaacLab官方文档。主要用于环境检查、world 测试、env 测试、smoke training 和低并发调试：
 
 - 操作系统：Ubuntu 22.04 / 24.04，或 Windows 11；
 - Python：3.11；
@@ -217,7 +220,7 @@ unitree_go2_isaaclab_rl/
 
 ### 训练配置建议
 
-用于较大并发训练、长时间实验和复杂可视化：
+IsaacLab/IsaacSim非常吃显卡显存。主要用于较大并发训练、长时间实验和复杂可视化：
 
 - 更高显存和内存会显著提升并行环境数量和训练稳定性；
 - headless 训练通常比 GUI 可视化占用更少资源；
@@ -272,7 +275,7 @@ python -c "import isaaclab; print('isaaclab ok')"
 ### 2. 克隆项目并进入工程目录
 
 ```bash
-git clone <your-repo-url> unitree_go2_isaaclab_rl
+git clone https://github.com/0324Lw/NVIDIA--Isaac-Lab-Unitree_Go2-control.git unitree_go2_isaaclab_rl
 cd unitree_go2_isaaclab_rl
 ```
 
@@ -366,7 +369,7 @@ python -c "import go2_rl; print('go2_rl ok')"
 
 ### 5. 配置本地路径文件
 
-项目提供示例路径文件，不直接提交个人绝对路径。可复制示例文件为本地私有配置：
+项目提供示例路径文件，不可直接运行，可复制示例文件为本地私有配置：
 
 Ubuntu：
 
@@ -526,7 +529,7 @@ bash scripts/ubuntu/test_task4_env.sh --num-envs 8 --steps 16
 
 ### 2. Ubuntu smoke training
 
-Smoke training 用于确认训练入口、日志写入、模型保存和 checkpoint 管理能正常工作，不用于代表最终策略效果。
+Smoke training 用于确认训练入口、日志写入、模型保存和 checkpoint 管理能正常工作。
 
 ```bash
 bash scripts/ubuntu/smoke_task1.sh
@@ -618,7 +621,7 @@ bash scripts/ubuntu/visualize_task4.sh logs/task4/<run_name>/final_checkpoint/go
 
 ## ➡️ Task 1：平地速度跟踪
 
-Task1 是基础 locomotion 任务，用于训练 Unitree Go2 在平地上保持稳定姿态，并跟踪随机速度指令。
+Task1 是基础 locomotion 任务，用于训练 Unitree Go2 在平地上保持稳定姿态，并跟踪随机速度指令。速度跟踪是本文建议第一个学习的机器狗任务，它能够涵盖大部分机器狗相关的建模，包括姿态空间/动作空间和奖励函数，很多任务都可以在正常的速度跟踪任务模型上继续进行。当然，这部分也有很多开源代码和项目，论文也非常多，本文设计的奖励函数并非完美，可以根据自己的学习进行进一步的优化和调试。任务1推荐6亿步。
 
 ### 任务目标
 
@@ -658,7 +661,12 @@ bash scripts/ubuntu/visualize_task1.sh logs/task1/<run_name>/final_checkpoint/go
 
 ## ➡️ Task 2：多地形运动
 
-Task2 在 Task1 的基础上加入多地形训练，用于提升 Go2 在不同地形上的通过能力。
+Task2 在 Task1 的基础上加入多地形训练，用于提升 Go2 在不同地形上的通过能力。盲爬是四足机器人的经典任务，也是多数实际应用场景的必备技能。然而，如果直接运行本项目代码进行训练，无论如何调整奖励函数与课程难度，最终得到的往往是一个低速模型。
+出现该现象的原因并非奖励函数未调优，而是多种地形共用了同一个奖励函数，从而导致了场景不适配。
+- **场景冲突**：在平地上，机器狗需保持固定的基座高度以维持正常的奔跑姿态；但在台阶场景中，攀爬时的基座高度是动态变化的。固定的奖励函数无法同时满足这两种需求。
+- **定制奖励函数的局限**：若针对不同场景设计独立的奖励函数与权重，虽能在逻辑上规避不适配，但会直接导致调参困难、调试周期过长，且最终结果往往仍是低速模型。
+事实上，问题的关键在于损失函数的定义，而非奖励函数。常用的 MAE 损失旨在让模型的值函数在各个场景下保持相似。当使用单一模型训练不同场景时，策略会倾向于寻找一个适用于所有地形的**通用解**——即低速。无论是在平地、洼地还是台阶，低速行驶永远是最稳妥的策略，这导致模型陷入了局部最优。
+- **解决方案：引入 MoE 机制**。仅仅更换损失函数也无法有效解决该问题。虽然为不同任务训练独立模型是最直接的方法，但为了让单一机器狗具备多任务处理能力，本项目引入了**混合专家（MoE, Mixture of Experts）**机制。通过训练不同的专家模型并利用 MoE 门控网络进行调度，相当于为不同任务分配了专属的「大脑」。只有结合该项技术，才能真正突破单一策略的瓶颈，有效解决 Task 2 中的多地形适应难题。
 
 ### 任务目标
 
@@ -708,7 +716,7 @@ bash scripts/ubuntu/visualize_task2.sh logs/task2/<run_name>/final_checkpoint/go
 
 ## ➡️ Task 3：自主导航与避障
 
-Task3 在真实 Go2 物理控制基础上加入解析导航世界。机器狗需要根据目标点、lidar 和风险特征，在存在静态 / 动态障碍物的环境中到达目标。
+Task3 在真实 Go2 物理控制基础上加入解析导航世界。机器狗需要根据目标点、lidar 和风险特征，在存在静态 / 动态障碍物的环境中到达目标。Task3与其他任务最明显的不同是Task3有专属的导航建模设计，在自身状态的基础上加入了终点信息和雷达信息。任务3推荐15亿步。
 
 ### 任务目标
 
@@ -763,7 +771,7 @@ Task3 训练难度高于 Task1 / Task2，推荐优先使用 Task1 或 Task2 chec
 
 ## ➡️ Task 4：Sim2Real / RMA 抗扰训练
 
-Task4 面向 Sim2Real 和鲁棒运动控制。当前实现 RMA Teacher 阶段，用于训练带 privileged information 的 teacher policy。后续可继续扩展 Student / adaptation module。
+Task4 面向 Sim2Real 和鲁棒运动控制。当前实现 RMA Teacher 阶段，用于训练带 privileged information 的 teacher policy。后续可继续扩展 Student / adaptation module。实际上前面的三个任务都可以适当加入Sim2Real机制，如果不考虑Sim2Real的话，前面三个模型都无法直接进行实际部署，可以说Task4才是一个真正面向部署训练的模型。但是Sim2Real的问题，本项目并没有完美解决，后续需要根据特定的需求进行完善。任务4推荐10亿步。
 
 ### 任务目标
 
@@ -877,8 +885,6 @@ bash scripts/ubuntu/smoke_task1.sh
 bash scripts/ubuntu/train_task1.sh
 ```
 
-Ubuntu 脚本适合 headless 训练、环境测试、world 测试、smoke training、正式训练、模型评估和 GUI 可视化。
-
 ### Windows
 
 Windows 脚本位于：
@@ -965,9 +971,9 @@ python -c "import torch; print(torch.__version__)"
 
 Smoke training 用于检查训练流程是否能启动、日志是否能写入、checkpoint 是否能保存，不代表最终策略效果。
 
-### 5. Task3 / Task4 为什么推荐 warm-start?
+### 5. Task2 / Task4 为什么推荐 warm-start?
 
-Task3 加入导航和障碍物，Task4 加入扰动和域随机化，直接从零训练更难。使用 Task1 / Task2 checkpoint 可以先继承基础步态，再学习更复杂的任务。
+Task2 需要在基础跟踪能力上进行盲爬，Task4 加入扰动和域随机化，直接从零训练更难。使用 Task1 可以先继承基础步态，再学习更复杂的任务。
 
 ### 6. Windows 路径需要怎么改?
 
