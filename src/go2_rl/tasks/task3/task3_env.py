@@ -1,21 +1,49 @@
 # Copyright (c) 2026
-# Unitree Go2 Task3：导航成功导向的动态避障 IsaacLab 环境。
+# Unitree Go2 Task3: 导航避障 IsaacLab 环境。
 #
-# 本文件只定义 Gymnasium / IsaacLab 环境，不启动 AppLauncher。
-# 训练入口位于 task3_train.py。
-# 模型评估入口位于 task3_model_test.py。
+# 本文件只定义 Task3 IsaacLab 环境，不启动 AppLauncher。
+# 环境采用 Gymnasium step API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
 #
-# 世界建模边界：
-# 1. Task3World 是纯 torch 解析世界，负责目标、障碍物、lidar、碰撞风险和 privileged features。
-# 2. 障碍物不是 Isaac Sim 中的真实 prim，而是 Task3World 内部 GPU 张量。
-# 3. 本环境负责 Go2 机器人控制、reset、step、观测、奖励、终止条件和 info 汇总。
+# 观测维度:
+#   actor obs = 208
+#   privileged obs = 276
+#   world privileged tail = 68
+#   lidar rays = 60
+#   action dim = 12
 #
-# 维度约定：
-#   actor 单帧观测维度       = 208
-#   privileged 单帧观测维度  = 276 = actor 208 + world privileged 68
-#   action 维度             = 12
-#   lidar 射线数量           = 60
-#   训练时 frame stack 由 task3_train.py / wrapper 处理。
+# 训练入口位于 task3_train.py，模型评估入口位于 task3_model_test.py。
+#
+# 工程说明:
+#   Task3 使用解析 world tensor 表示目标点、静态障碍物、动态障碍物和 lidar。
+#   障碍物不在训练环境中生成 USD prim，从而减少大规模并行训练时的场景同步和渲染开销。
+#   actor obs 包含本体状态、目标信息、障碍物摘要、lidar 和 lidar delta。
+#   info 中保留 GPU tensor，低频日志阶段再转换为标量，以减少 step 内 CPU 同步。
+#
+# Unitree Go2 Task3: navigation and obstacle-avoidance IsaacLab environment.
+#
+# This file only defines the Task3 IsaacLab environment and does not launch AppLauncher.
+# The environment follows the Gymnasium step API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor obs = 208
+#   privileged obs = 276
+#   world privileged tail = 68
+#   lidar rays = 60
+#   action dim = 12
+#
+# Training entry is task3_train.py, and model evaluation entry is task3_model_test.py.
+#
+# Engineering notes:
+#   Task3 represents targets, static obstacles, dynamic obstacles, and lidar
+#   through analytical world tensors. Obstacles are not spawned as USD prims in
+#   the training environment, reducing scene synchronization and rendering cost
+#   for large-scale parallel training. actor obs contains proprioception, target
+#   information, obstacle summaries, lidar, and lidar delta. info keeps GPU
+#   tensors and converts them to scalars only during low-frequency logging.
 
 from __future__ import annotations
 

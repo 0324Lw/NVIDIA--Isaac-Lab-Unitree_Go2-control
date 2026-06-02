@@ -1,13 +1,50 @@
 # Copyright (c) 2026
-# Unitree Go2 Task3: analytical navigation / obstacle avoidance world.
+# Unitree Go2 Task3: 解析式导航避障世界模型。
 #
-# Strict refactor notes:
-# 1. This file is pure torch and does not import IsaacLab.
-# 2. It does not create real obstacle prims.
-# 3. Static/dynamic obstacles, lidar, collision, risk features, and privileged
-#    features are computed analytically on GPU tensors.
-# 4. Future task3_env.py should use this world as the navigation layer while
-#    IsaacLab handles the real Go2 robot physics.
+# 本文件定义 Task3 的世界级导航与障碍物逻辑，不创建 Go2 机器人、不计算 PPO、不启动训练流程。
+# 主要职责:
+#   1. 采样起点、目标点、目标速度和课程阶段；
+#   2. 采样静态/动态圆形障碍物；
+#   3. 推进动态障碍物并处理边界反射；
+#   4. 计算解析 2D lidar、lidar delta 和障碍物风险特征；
+#   5. 计算目标观测、距离进度、碰撞、越界、成功和超时事件；
+#   6. 构造 world privileged features。
+#
+# 观测维度:
+#   lidar rays = 60
+#   world privileged tail = 68
+#
+# 训练入口位于 task3_train.py，模型评估入口位于 task3_model_test.py。
+#
+# 工程说明:
+#   Task3 world 使用 tensor 化解析几何而不是 USD obstacle prim。
+#   这样训练阶段可以在大量并行环境中稳定计算 lidar、碰撞和风险特征。
+#   评估脚本可以单独用 marker 可视化目标和障碍物，但训练 world 本身保持无 prim 设计。
+#
+# Unitree Go2 Task3: analytical navigation and obstacle-avoidance world model.
+#
+# This file defines Task3 world-level navigation and obstacle logic. It does not
+# create the Go2 robot, compute PPO, or launch training.
+# Main responsibilities:
+#   1. Sample starts, goals, target speeds, and curriculum stages;
+#   2. Sample static/dynamic circular obstacles;
+#   3. Advance dynamic obstacles and handle boundary reflection;
+#   4. Compute analytical 2D lidar, lidar delta, and obstacle-risk features;
+#   5. Compute target observations, distance progress, collision, out-of-bounds,
+#      success, and timeout events;
+#   6. Build world privileged features.
+#
+# Observation dimensions:
+#   lidar rays = 60
+#   world privileged tail = 68
+#
+# Training entry is task3_train.py, and model evaluation entry is task3_model_test.py.
+#
+# Engineering notes:
+#   Task3 world uses tensorized analytical geometry instead of USD obstacle prims.
+#   This keeps lidar, collision, and risk-feature computation stable across many
+#   parallel training environments. Evaluation scripts may visualize targets and
+#   obstacles with markers, while the training world itself remains prim-free.
 
 from __future__ import annotations
 
