@@ -1,3 +1,58 @@
+# Copyright (c) 2026
+# Unitree Go2 Task3: 导航避障模型评估入口。
+#
+# 本文件用于评估 Task3 导航避障任务的 skrl PPO checkpoint。
+# 本文件会创建 IsaacLab AppLauncher，并在导入 IsaacLab 环境后构建评估环境。
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor single obs = 208
+#   actor stacked obs = 1040
+#   world privileged tail = 68
+#   raw privileged obs = 276
+#   critic obs = 1108
+#   lidar rays = 60
+#   action dim = 12
+#
+# 模型评估入口:
+#   python src/go2_rl/tasks/task3/task3_model_test.py --checkpoint <checkpoint>
+#
+# 工程说明:
+#   默认评估模式打开 Isaac Sim GUI，便于观察导航轨迹、目标点和障碍物关系。
+#   传入 --headless-eval 时切换为无头评估，用于服务器或批量测试。
+#   评估 wrapper 与训练 wrapper 使用相同的 actor / critic 维度布局。
+#
+# Unitree Go2 Task3: navigation and obstacle-avoidance model evaluation entry.
+#
+# This file evaluates skrl PPO checkpoints for Task3 navigation and obstacle avoidance.
+# It creates IsaacLab AppLauncher and builds the evaluation environment after
+# IsaacLab environment modules are imported.
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor single obs = 208
+#   actor stacked obs = 1040
+#   world privileged tail = 68
+#   raw privileged obs = 276
+#   critic obs = 1108
+#   lidar rays = 60
+#   action dim = 12
+#
+# Model evaluation entry:
+#   python src/go2_rl/tasks/task3/task3_model_test.py --checkpoint <checkpoint>
+#
+# Engineering notes:
+#   Evaluation opens Isaac Sim GUI by default for inspecting navigation paths,
+#   target points, and obstacle relationships. Passing --headless-eval switches
+#   to headless evaluation for servers or batch testing. The evaluation wrapper
+#   uses the same actor / critic dimension layout as the training wrapper.
+
 from __future__ import annotations
 
 import argparse
@@ -39,7 +94,7 @@ parser.add_argument("--no-world-markers", action="store_true")
 parser.add_argument(
     "--no-close-on-exit",
     action="store_true",
-    help="Debug only: do not explicitly close Isaac Sim on exit",
+    help="Debug only: keep Isaac Sim open after evaluation",
 )
 AppLauncher.add_app_launcher_args(parser)
 args_cli, _ = parser.parse_known_args()
@@ -284,8 +339,10 @@ class Go2Task3EvalFrameStackWrapper(gym.Env):
         world privileged tail = 68
         critic obs = 1040 + 68 = 1108
 
-    不能使用 Go2FrameStackWrapper(use_privileged_obs=True)，因为它会堆叠完整
-    276 维 privileged obs，导致 critic = 276 * 5 = 1380，与最终模型不匹配。
+    工程说明:
+        通用 Go2FrameStackWrapper(use_privileged_obs=True) 会堆叠完整 276 维 privileged obs，
+        得到 critic = 276 * 5 = 1380。Task3 最终 checkpoint 使用的是
+        actor_stack 1040 + world privileged tail 68 = 1108，因此评估阶段保留任务专用 wrapper。
     """
 
     def __init__(self, env: Go2Task3Env, n_stack: int = 5):

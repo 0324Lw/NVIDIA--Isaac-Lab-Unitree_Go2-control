@@ -1,12 +1,36 @@
-# Unitree Go2 Task3 analytical world test.
+# Copyright (c) 2026
+# Unitree Go2 Task3: 解析式导航避障世界模型白盒测试。
 #
-# Usage:
-#   cd /home/lw/unitree_go2_isaaclab_rl
-#   python tests/task3/task3_world_test.py --num-envs 2048 --test-device cuda:0
+# 本文件用于检查 Task3World 的目标采样、静态/动态障碍物、解析 lidar、risk features、
+# termination 事件和 world privileged features。
 #
-# Important:
-#   Task3World is pure torch and does NOT import IsaacLab.
-#   This test must be fast, headless-free, and independent of AppLauncher.
+# 测试入口:
+#   bash scripts/ubuntu/test_task3_world.sh
+#
+# 观测维度:
+#   lidar rays = 60
+#   world privileged tail = 68
+#
+# 工程说明:
+#   Task3World 是纯 torch 解析世界，不依赖 IsaacLab，不生成 obstacle prim。
+#   compute_lidar_tensors 是 full-batch API，因为 obstacle tensor 以 [num_envs, ...] 形式保存。
+#
+# Unitree Go2 Task3: analytical navigation and obstacle-avoidance world-model white-box test.
+#
+# This file checks Task3World goal sampling, static/dynamic obstacles, analytical lidar,
+# risk features, termination events, and world privileged features.
+#
+# Test entry:
+#   bash scripts/ubuntu/test_task3_world.sh
+#
+# Observation dimensions:
+#   lidar rays = 60
+#   world privileged tail = 68
+#
+# Engineering notes:
+#   Task3World is a pure-torch analytical world. It does not depend on IsaacLab and
+#   does not spawn obstacle prims. compute_lidar_tensors is a full-batch API because
+#   obstacle tensors are stored as [num_envs, ...].
 
 from __future__ import annotations
 
@@ -39,11 +63,11 @@ args = parser.parse_args()
 
 
 def print_ok(msg: str) -> None:
-    print(f" ✅ {msg}", flush=True)
+    print(f"[OK] {msg}", flush=True)
 
 
 def print_warn(msg: str) -> None:
-    print(f" ⚠️ {msg}", flush=True)
+    print(f"[WARN] {msg}", flush=True)
 
 
 def heading(title: str) -> None:
@@ -162,7 +186,7 @@ def test_config(cfg: Task3WorldCfg) -> None:
     assert abs(cfg.policy_dt - 0.02) < 1e-8
 
     assert cfg.env_size == 30.0
-    assert cfg.num_lidar_rays == 90
+    assert cfg.num_lidar_rays == 60
     assert cfg.lidar_max_distance == 6.0
     assert cfg.max_static_obs == 25
     assert cfg.max_dynamic_obs == 8
@@ -228,16 +252,16 @@ def test_curriculum(cfg: Task3WorldCfg, world: Task3World) -> None:
 
     checks = [
         (0.00, 0),
-        (0.079999, 0),
-        (0.08, 1),
-        (0.199999, 1),
-        (0.20, 2),
-        (0.359999, 2),
-        (0.36, 3),
-        (0.559999, 3),
-        (0.56, 4),
-        (0.779999, 4),
-        (0.78, 5),
+        (0.179999, 0),
+        (0.18, 1),
+        (0.379999, 1),
+        (0.38, 2),
+        (0.619999, 2),
+        (0.62, 3),
+        (0.839999, 3),
+        (0.84, 4),
+        (0.959999, 4),
+        (0.96, 5),
         (1.00, 5),
     ]
 
@@ -760,7 +784,7 @@ def test_random_rollout(cfg: Task3WorldCfg, world: Task3World, device: str, num_
             robot_pos[done_ids, 2] = 0.0
             robot_yaw[done_ids] = 0.0
             # Task3World stores obstacle tensors as full-batch tensors [num_envs, ...].
-            # compute_lidar_tensors is therefore a full-batch API. Do not call it with
+            # compute_lidar_tensors is therefore a full-batch API. The refresh path uses
             # robot_pos[done_ids], otherwise ray_dir batch becomes [done_count, ...]
             # while obstacle tensors remain [num_envs, ...], causing torch.bmm batch mismatch.
             refreshed_lidar = world.compute_lidar_tensors(
@@ -815,10 +839,10 @@ def main() -> None:
     heading("Go2 Task3 Analytical World 测试全部通过")
     print("重点结论：")
     print("1. Task3World 是纯 torch 解析世界，不依赖 IsaacLab，不创建 obstacle prim。")
-    print("2. 课程阶段映射正常：K=0.08 进入 Stage1，K=0.20 进入 Stage2，K=0.78 进入 Stage5。")
+    print("2. 课程阶段映射正常：K=0.18 进入 Stage1，K=0.38 进入 Stage2，K=0.96 进入 Stage5。")
     print("3. Stage0 无障碍，Stage1 静态障碍，Stage2+ 动态障碍逐步加入。")
     print("4. 起点/终点采样、障碍物安全区、动态障碍运动、边界反弹均通过。")
-    print("5. lidar 输出 [N, 90]，risk features 输出 [N, 8]。")
+    print("5. lidar 输出 [N, 60]，risk features 输出 [N, 8]。")
     print("6. privileged features 输出 [N, 68]，可供后续 Task3 critic 使用。")
     print("7. success / collision / fallen / out_of_bounds / timeout 终止逻辑均通过。")
     print("8. 下一步可以进入 task3_env.py，把解析导航世界接入真实 Go2 IsaacLab 物理环境。")

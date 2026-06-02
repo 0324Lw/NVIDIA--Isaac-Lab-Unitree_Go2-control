@@ -1,12 +1,52 @@
 # Copyright (c) 2026
-# Unitree Go2 Task2: multi-terrain / multi-material locomotion config.
+# Unitree Go2 Task2: 多地形运动任务配置。
 #
-# Strict refactor notes:
-# 1. This file contains Python dataclass configs only.
-# 2. task2_world.py imports Task2TerrainCfg from here.
-# 3. task2_env.py imports Task2Config from here.
-# 4. AppLauncher must not be started here.
-# 5. Reward-V2.1 no longer uses legacy w_* reward weights.
+# 本文件只定义 Task2 配置参数，不启动 IsaacLab AppLauncher，也不创建环境实例。
+# 配置覆盖仿真参数、机器人控制参数、观测维度、动作维度、多地形参数、课程参数和奖励权重。
+#
+# Gymnasium API:
+#   环境入口位于 task2_env.py
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor obs = 87
+#   privileged obs = 178
+#   terrain privileged tail = 91
+#   action dim = 12
+#
+# 训练入口位于 task2_train.py，模型评估入口位于 task2_model_test.py。
+#
+# 工程说明:
+#   Task2 在 Task1 平地运动基础上加入多地形课程。
+#   privileged obs 由 actor obs 和 terrain privileged tail 拼接得到。
+#   terrain privileged tail 只供 asymmetric critic 使用，不进入 policy observation。
+#
+# Unitree Go2 Task2: multi-terrain locomotion task configuration.
+#
+# This file only defines Task2 configuration parameters. It does not launch
+# IsaacLab AppLauncher or create environment instances. The configuration covers
+# simulation parameters, robot-control parameters, observation dimensions,
+# action dimensions, multi-terrain parameters, curriculum settings, and reward weights.
+#
+# Gymnasium API:
+#   Environment entry is task2_env.py
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor obs = 87
+#   privileged obs = 178
+#   terrain privileged tail = 91
+#   action dim = 12
+#
+# Training entry is task2_train.py, and model evaluation entry is task2_model_test.py.
+#
+# Engineering notes:
+#   Task2 adds a multi-terrain curriculum on top of the Task1 flat-locomotion base.
+#   privileged obs is formed by concatenating actor obs and the terrain privileged tail.
+#   The terrain privileged tail is used only by the asymmetric critic and is not part
+#   of the policy observation.
 
 from __future__ import annotations
 

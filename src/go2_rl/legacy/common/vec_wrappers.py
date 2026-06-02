@@ -6,7 +6,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from go2_rl.common.running_mean_std import RunningMeanStd
+from go2_rl.legacy.common.running_mean_std import RunningMeanStd
 
 
 class Go2FrameStackNormWrapper(gym.Env):

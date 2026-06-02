@@ -1,12 +1,49 @@
-# Unitree Go2 Task2 environment test.
+# Copyright (c) 2026
+# Unitree Go2 Task2: 多地形运动环境集成测试。
 #
-# Usage:
-#   cd /home/lw/unitree_go2_isaaclab_rl
-#   python tests/task2/task2_env_test.py --num-envs 32 --steps 240 --headless --device cuda:0
+# 本文件用于检查 Task2 IsaacLab 环境的初始化、观测维度、privileged obs、terrain curriculum、
+# reset 对齐、奖励项和随机 rollout 数值稳定性。
 #
-# Important:
-#   task2_env.py imports task2_world.py, and task2_world.py imports isaaclab.terrains.
-#   Therefore AppLauncher must be launched before importing Go2Task2Env.
+# 测试入口:
+#   bash scripts/ubuntu/test_task2_env.sh
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor obs = 87
+#   privileged obs = 178
+#   terrain privileged tail = 91
+#   action dim = 12
+#
+# 工程说明:
+#   IsaacLab / pxr 依赖模块在 AppLauncher 启动后导入。
+#   测试重点检查 TerrainImporter env_origins 与 Task2World terrain origin 的对齐关系。
+#
+# Unitree Go2 Task2: multi-terrain locomotion environment integration test.
+#
+# This file checks Task2 IsaacLab environment initialization, observation dimensions,
+# privileged obs, terrain curriculum, reset alignment, reward terms, and random-rollout
+# numerical stability.
+#
+# Test entry:
+#   bash scripts/ubuntu/test_task2_env.sh
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor obs = 87
+#   privileged obs = 178
+#   terrain privileged tail = 91
+#   action dim = 12
+#
+# Engineering notes:
+#   IsaacLab / pxr dependent modules are imported after AppLauncher starts.
+#   The test focuses on alignment between TerrainImporter env_origins and
+#   Task2World terrain origins.
 
 from __future__ import annotations
 
@@ -47,11 +84,11 @@ from go2_rl.tasks.task2.task2_env import Go2Task2Env
 
 
 def print_ok(msg: str) -> None:
-    print(f" ✅ {msg}", flush=True)
+    print(f"[OK] {msg}", flush=True)
 
 
 def print_warn(msg: str) -> None:
-    print(f" ⚠️ {msg}", flush=True)
+    print(f"[WARN] {msg}", flush=True)
 
 
 def heading(title: str) -> None:
@@ -704,15 +741,15 @@ def run_tests() -> None:
         print_summary_table(summarize_records(records))
 
         print("Go2 Task2 training pre-check guide:")
-        print("1. actor obs must be 87, privileged obs must be 178.")
-        print("2. terrain privileged part must be 91, height scan must be 81.")
+        print("1. actor obs 期望为 87，privileged obs 期望为 178。")
+        print("2. terrain privileged part 期望为 91，height scan 期望为 81。")
         print("3. Random policy Fall_Rate can be high, but NaN/Inf is not allowed.")
         print("4. Key metrics: Actual_Vx/Cmd_Vx, Fall_Rate, Contact_Count, P_Foot_Slip, Mean_Terrain_Level.")
         print("5. If Mean_Terrain_Level never changes during training, inspect terrain curriculum thresholds.")
-        print("\n✅ Unitree Go2 Task2 environment test completed.")
+        print("\n[OK] Unitree Go2 Task2 environment test completed.")
 
     except Exception as exc:
-        print("\n❌ Unitree Go2 Task2 environment test failed:")
+        print("\n[FAIL] Unitree Go2 Task2 environment test failed:")
         print(type(exc).__name__, ":", exc)
         raise
 

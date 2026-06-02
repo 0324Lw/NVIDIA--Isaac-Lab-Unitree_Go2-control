@@ -1,15 +1,46 @@
 # Copyright (c) 2026
-# Unitree Go2 Task2: multi-terrain / multi-material locomotion environment.
+# Unitree Go2 Task2: 多地形运动 IsaacLab 环境。
 #
-# Strict refactor notes:
-# 1. This file only defines the IsaacLab environment logic.
-# 2. It does not start AppLauncher.
-# 3. It imports Task2Config from task2_config.py.
-# 4. It imports Task2World / TerrainCurriculum from task2_world.py.
-# 5. Single-frame actor obs = 87.
-# 6. Single-frame privileged obs = 178 = actor obs 87 + terrain privileged 91.
-# 7. Training frame stack is handled by common/go2_skrl_wrappers.py.
-# 8. Info values are mostly GPU tensors to reduce CPU synchronization during training.
+# 本文件只定义 Task2 IsaacLab 环境，不启动 AppLauncher。
+# 环境采用 Gymnasium step API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor obs = 87
+#   privileged obs = 178
+#   terrain privileged tail = 91
+#   action dim = 12
+#
+# 训练入口位于 task2_train.py，模型评估入口位于 task2_model_test.py。
+#
+# 工程说明:
+#   Task2 使用 TerrainImporter 构建多地形场景。
+#   terrain origin 优先读取 TerrainImporter 生成的 env_origins，使机器人 reset、高度扫描和 terrain
+#   privileged features 与实际地形块位置一致。
+#   info 中保留 GPU tensor，低频日志阶段再转换为标量，以减少 step 内 CPU 同步。
+#
+# Unitree Go2 Task2: multi-terrain locomotion IsaacLab environment.
+#
+# This file only defines the Task2 IsaacLab environment and does not launch AppLauncher.
+# The environment follows the Gymnasium step API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor obs = 87
+#   privileged obs = 178
+#   terrain privileged tail = 91
+#   action dim = 12
+#
+# Training entry is task2_train.py, and model evaluation entry is task2_model_test.py.
+#
+# Engineering notes:
+#   Task2 uses TerrainImporter to build the multi-terrain scene.
+#   terrain origins are preferentially read from TerrainImporter env_origins, so robot reset,
+#   height scans, and terrain privileged features stay aligned with the actual terrain tiles.
+#   info keeps GPU tensors and converts them to scalars only during low-frequency logging to
+#   reduce CPU synchronization inside step.
 
 from __future__ import annotations
 

@@ -1,3 +1,58 @@
+# Copyright (c) 2026
+# Unitree Go2 Task3: 导航避障强化学习训练入口。
+#
+# 本文件启动 Task3 导航避障任务的 skrl PPO 训练流程。
+# 本文件会创建 IsaacLab AppLauncher，并在导入 IsaacLab 环境后构建训练环境。
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor single obs = 208
+#   actor stacked obs = 1040
+#   world privileged tail = 68
+#   raw privileged obs = 276
+#   critic obs = 1108
+#   lidar rays = 60
+#   action dim = 12
+#
+# 训练入口:
+#   python src/go2_rl/tasks/task3/task3_train.py
+#
+# 工程说明:
+#   Task3 使用任务内 asymmetric frame-stack wrapper。
+#   policy 读取导航 actor observation history，critic 读取 actor history 和 world privileged tail。
+#   障碍物由 analytical world tensor 表示，不在训练环境中生成 USD prim。
+#
+# Unitree Go2 Task3: navigation and obstacle-avoidance reinforcement-learning training entry.
+#
+# This file launches the skrl PPO training pipeline for Task3 navigation and obstacle avoidance.
+# It creates IsaacLab AppLauncher and builds the training environment after
+# IsaacLab environment modules are imported.
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor single obs = 208
+#   actor stacked obs = 1040
+#   world privileged tail = 68
+#   raw privileged obs = 276
+#   critic obs = 1108
+#   lidar rays = 60
+#   action dim = 12
+#
+# Training entry:
+#   python src/go2_rl/tasks/task3/task3_train.py
+#
+# Engineering notes:
+#   Task3 uses a task-local asymmetric frame-stack wrapper.
+#   The policy reads navigation actor observation history, while the critic reads
+#   actor history plus the world privileged tail. Obstacles are represented by
+#   analytical world tensors and are not spawned as USD prims in the training environment.
+
 from __future__ import annotations
 
 import argparse
@@ -826,7 +881,7 @@ def _try_set_policy_log_std(policy, value: float) -> bool:
 
 
 def load_actor_warm_start(models: Dict[str, Any], path: str, device: str, label: str, pretrained_log_std: float) -> bool:
-    # Task3-Navigation-V3 uses a new actor observation layout and must be
+    # Task3-Navigation-V3 uses a new actor observation layout and is
     # trained from scratch. Keep this function as a compatibility stub so old
     # command lines fail safely instead of silently loading incompatible priors.
     if not path:

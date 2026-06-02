@@ -1,12 +1,34 @@
-# Unitree Go2 Task2 world / terrain / curriculum test.
+# Copyright (c) 2026
+# Unitree Go2 Task2: 多地形世界模型白盒测试。
 #
-# Usage:
-#   cd /home/lw/unitree_go2_isaaclab_rl
-#   python tests/task2/task2_world_test.py --num-envs 1000 --test-device cuda:0 --headless
+# 本文件用于检查 Task2World 的 terrain generator、terrain index mapping、origin mapping、
+# height scan、terrain privileged features 和 terrain curriculum。
 #
-# Important:
-#   task2_world.py imports isaaclab.terrains.
-#   Therefore AppLauncher must be launched before importing task2_world.py.
+# 测试入口:
+#   bash scripts/ubuntu/test_task2_world.sh
+#
+# 观测维度:
+#   terrain privileged tail = 91
+#
+# 工程说明:
+#   Task2World 可在纯 torch 层面检查多地形索引、解析高度和 privileged terrain features。
+#   当 TerrainImporter env_origins 不可用时，测试覆盖逻辑 origin 回退路径。
+#
+# Unitree Go2 Task2: multi-terrain world-model white-box test.
+#
+# This file checks Task2World terrain generator, terrain-index mapping, origin mapping,
+# height scan, terrain privileged features, and terrain curriculum.
+#
+# Test entry:
+#   bash scripts/ubuntu/test_task2_world.sh
+#
+# Observation dimensions:
+#   terrain privileged tail = 91
+#
+# Engineering notes:
+#   Task2World can be checked at the pure-torch level for multi-terrain indexing,
+#   analytical height, and privileged terrain features. When TerrainImporter
+#   env_origins are unavailable, the test covers the logical-origin fallback path.
 
 from __future__ import annotations
 
@@ -45,11 +67,11 @@ from go2_rl.tasks.task2.task2_world import Task2World, TerrainCurriculum
 
 
 def print_ok(msg: str) -> None:
-    print(f" ✅ {msg}", flush=True)
+    print(f"[OK] {msg}", flush=True)
 
 
 def print_warn(msg: str) -> None:
-    print(f" ⚠️ {msg}", flush=True)
+    print(f"[WARN] {msg}", flush=True)
 
 
 def heading(title: str) -> None:
@@ -90,8 +112,6 @@ def test_config_files_exist() -> None:
     required = [
         PROJECT_ROOT / "configs" / "task1_flat_locomotion.yaml",
         PROJECT_ROOT / "configs" / "task2_multiterrain.yaml",
-        PROJECT_ROOT / "configs" / "platform_ubuntu_laptop.yaml",
-        PROJECT_ROOT / "configs" / "platform_windows_3090.yaml",
         PROJECT_ROOT / "configs" / "local_paths.example.yaml",
         PROJECT_ROOT / "src" / "go2_rl" / "tasks" / "task2" / "task2_config.py",
         PROJECT_ROOT / "src" / "go2_rl" / "tasks" / "task2" / "task2_world.py",
@@ -725,7 +745,7 @@ def run_tests() -> None:
     if bool(args_cli.scene_test):
         test_optional_scene_instantiation(cfg, world, device)
     else:
-        print("\n⚠️ 已跳过 Isaac Terrain scene 实例化测试。需要测试真实 scene 时运行：")
+        print("\n[WARN] 已跳过 Isaac Terrain scene 实例化测试。需要测试真实 scene 时运行：")
         print("   python tests/task2/task2_world_test.py --scene-test --test-device cuda:0 --headless")
 
     heading("Go2 Task2 World / Terrain / Curriculum 测试全部通过")

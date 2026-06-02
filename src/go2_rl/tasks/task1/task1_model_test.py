@@ -1,3 +1,50 @@
+# Copyright (c) 2026
+# Unitree Go2 Task1: 平地运动模型评估入口。
+#
+# 本文件用于评估 Task1 平地运动任务的 skrl PPO checkpoint。
+# 本文件会创建 IsaacLab AppLauncher，并在导入 IsaacLab 环境后构建评估环境。
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor single obs = 87
+#   actor stacked obs = 435
+#   critic obs = 435
+#   action dim = 12
+#
+# 模型评估入口:
+#   python src/go2_rl/tasks/task1/task1_model_test.py --checkpoint <checkpoint>
+#
+# 工程说明:
+#   默认评估模式打开 Isaac Sim GUI，便于观察步态和姿态。
+#   传入 --headless-eval 时切换为无头评估，用于服务器或批量测试。
+#
+# Unitree Go2 Task1: flat locomotion model evaluation entry.
+#
+# This file evaluates skrl PPO checkpoints for Task1 flat locomotion.
+# It creates IsaacLab AppLauncher and builds the evaluation environment after
+# IsaacLab environment modules are imported.
+#
+# Gymnasium API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor single obs = 87
+#   actor stacked obs = 435
+#   critic obs = 435
+#   action dim = 12
+#
+# Model evaluation entry:
+#   python src/go2_rl/tasks/task1/task1_model_test.py --checkpoint <checkpoint>
+#
+# Engineering notes:
+#   Evaluation opens Isaac Sim GUI by default for gait and posture inspection.
+#   Passing --headless-eval switches to headless evaluation for servers or
+#   batch testing.
+
 from __future__ import annotations
 
 import argparse
@@ -32,18 +79,13 @@ parser.add_argument("--start-k", type=float, default=1.0)
 parser.add_argument("--print-interval", type=int, default=100)
 parser.add_argument("--visualize", action="store_true", help="Compatibility flag; GUI is enabled by default")
 parser.add_argument("--headless-eval", action="store_true", help="Run model evaluation without Isaac Sim GUI")
-parser.add_argument("--no-close-on-exit", action="store_true", help="Debug only: do not explicitly call None if bool(getattr(args_cli, 'no_close_on_exit', False)) else simulation_app.close()")
+parser.add_argument("--no-close-on-exit", action="store_true", help="Debug only: keep Isaac Sim open after evaluation")
 AppLauncher.add_app_launcher_args(parser)
 args_cli, _ = parser.parse_known_args()
 
-# Windows GUI eval policy:
-# Model evaluation opens Isaac Sim GUI by default.
-# Use --headless-eval only when a non-visual evaluation is explicitly needed.
-if bool(getattr(args_cli, "headless_eval", False)):
-    # GUI eval default: do not force headless=True here.
-    args_cli.headless = False
-else:
-    args_cli.headless = False
+# Evaluation opens Isaac Sim GUI by default.
+# --headless-eval switches AppLauncher to headless mode for terminal-only runs.
+args_cli.headless = bool(getattr(args_cli, "headless_eval", False))
 if hasattr(args_cli, "enable_cameras"):
     args_cli.enable_cameras = True
 simulation_app = AppLauncher(args_cli).app
@@ -322,7 +364,8 @@ def main():
             pass
 
         try:
-            None if bool(getattr(args_cli, 'no_close_on_exit', False)) else simulation_app.close()
+            if not bool(getattr(args_cli, "no_close_on_exit", False)):
+                simulation_app.close()
         except Exception:
             pass
 

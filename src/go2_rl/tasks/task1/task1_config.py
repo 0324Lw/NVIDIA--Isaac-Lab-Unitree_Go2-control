@@ -1,11 +1,48 @@
 # Copyright (c) 2026
-# Unitree Go2 Task1: flat-ground locomotion config.
+# Unitree Go2 Task1: 平地运动任务配置。
 #
-# Strict refactor notes:
-# 1. This file contains Python dataclass config only.
-# 2. YAML configs under configs/ are public-facing references.
-# 3. Env / test / train should import Task1Config from this file.
-# 4. AppLauncher must not be started here.
+# 本文件只定义 Task1 配置参数，不启动 IsaacLab AppLauncher，也不创建环境实例。
+# 配置覆盖仿真参数、机器人控制参数、观测维度、动作维度、课程参数和奖励权重。
+#
+# Gymnasium API:
+#   环境入口位于 task1_env.py
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor obs = 87
+#   privileged obs = 0
+#   action dim = 12
+#
+# 训练入口位于 task1_train.py，模型评估入口位于 task1_model_test.py。
+#
+# 工程说明:
+#   Task1 是平地基础运动任务，critic 与 policy 使用相同的 actor observation history。
+#   该配置文件保持为纯 dataclass 配置，便于训练、测试和脚本入口复用。
+#
+# Unitree Go2 Task1: flat locomotion task configuration.
+#
+# This file only defines Task1 configuration parameters. It does not launch
+# IsaacLab AppLauncher or create environment instances. The configuration covers
+# simulation parameters, robot-control parameters, observation dimensions,
+# action dimensions, curriculum parameters, and reward weights.
+#
+# Gymnasium API:
+#   Environment entry is task1_env.py
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor obs = 87
+#   privileged obs = 0
+#   action dim = 12
+#
+# Training entry is task1_train.py, and model evaluation entry is task1_model_test.py.
+#
+# Engineering notes:
+#   Task1 is the base flat-ground locomotion task. The critic and policy use the
+#   same actor observation history. This file remains a pure dataclass
+#   configuration so training, testing, and script entries can reuse it.
 
 from __future__ import annotations
 

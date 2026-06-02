@@ -1,14 +1,54 @@
 # Copyright (c) 2026
-# Unitree Go2 Task3: navigation-success oriented obstacle avoidance config with final stability tuning.
+# Unitree Go2 Task3: 导航避障任务配置。
 #
-# Strict refactor notes:
-# 1. Task3WorldCfg is pure torch analytical world config.
-# 2. Task3Config is IsaacLab Go2 environment config.
-# 3. task3_world.py must not import IsaacLab.
-# 4. task3_env.py imports IsaacLab but must not start AppLauncher.
-# 5. Task3-V3.2 is the final stability-tuned navigation policy config.
-# 6. Actor single obs dim = 208 when num_lidar_rays = 60.
-# 7. Critic single obs dim = 276 = actor obs 208 + world privileged 68.
+# 本文件只定义 Task3 配置参数，不启动 IsaacLab AppLauncher，也不创建环境实例。
+# 配置覆盖仿真参数、机器人控制参数、导航世界参数、观测维度、动作维度、课程参数和奖励权重。
+#
+# Gymnasium API:
+#   环境入口位于 task3_env.py
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   actor obs = 208
+#   privileged obs = 276
+#   world privileged tail = 68
+#   lidar rays = 60
+#   action dim = 12
+#
+# 训练入口位于 task3_train.py，模型评估入口位于 task3_model_test.py。
+#
+# 工程说明:
+#   Task3 在多地形运动基础上加入目标导航、静态/动态障碍物、解析 lidar 和分阶段课程。
+#   privileged obs 由 actor obs 和 world privileged tail 拼接得到。
+#   world privileged tail 只供 asymmetric critic 使用，不进入 policy observation。
+#
+# Unitree Go2 Task3: navigation and obstacle-avoidance task configuration.
+#
+# This file only defines Task3 configuration parameters. It does not launch
+# IsaacLab AppLauncher or create environment instances. The configuration covers
+# simulation parameters, robot-control parameters, navigation-world parameters,
+# observation dimensions, action dimensions, curriculum settings, and reward weights.
+#
+# Gymnasium API:
+#   Environment entry is task3_env.py
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   actor obs = 208
+#   privileged obs = 276
+#   world privileged tail = 68
+#   lidar rays = 60
+#   action dim = 12
+#
+# Training entry is task3_train.py, and model evaluation entry is task3_model_test.py.
+#
+# Engineering notes:
+#   Task3 adds goal navigation, static/dynamic obstacles, analytical lidar, and
+#   staged curriculum on top of locomotion. privileged obs is formed by
+#   concatenating actor obs and the world privileged tail. The world privileged
+#   tail is used only by the asymmetric critic and is not part of the policy observation.
 
 from __future__ import annotations
 
@@ -18,7 +58,7 @@ from typing import Tuple
 
 @dataclass
 class Task3WorldCfg:
-    """Analytical navigation world config for Go2 Task3-V3.1."""
+    """Go2 Task3-V3.2 解析导航世界配置。"""
 
     # ----------------------------- Frequency -----------------------------
     pd_control_freq: float = 200.0

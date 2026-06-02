@@ -1,15 +1,55 @@
 # Copyright (c) 2026
-# Unitree Go2 Task4: Sim2Real / RMA robust locomotion config.
+# Unitree Go2 Task4: Sim2Real / RMA teacher 任务配置。
 #
-# Strict refactor notes:
-# 1. This file contains dataclass configs only.
-# 2. task4_env.py imports IsaacLab but must not start AppLauncher.
-# 3. Default mode is teacher_mode=True:
-#       return_obs = actor_history + privileged_obs
-# 4. Actor single obs dim = 48.
-# 5. Actor history obs dim = 48 * 5 = 240.
-# 6. Privileged obs dim = 25.
-# 7. Teacher obs dim = 240 + 25 = 265.
+# 本文件只定义 Task4 配置参数，不启动 IsaacLab AppLauncher，也不创建环境实例。
+# 配置覆盖仿真参数、机器人控制参数、teacher/student 观测维度、domain randomization、
+# 课程参数和奖励权重。
+#
+# Gymnasium API:
+#   环境入口位于 task4_env.py
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   single actor obs = 48
+#   actor history obs = 240
+#   privileged obs = 25
+#   teacher obs = 265
+#   action dim = 12
+#
+# 训练入口位于 task4_train.py，模型评估入口位于 task4_model_test.py。
+#
+# 工程说明:
+#   Task4 当前默认 teacher_mode=True，用于训练 privileged teacher policy。
+#   teacher obs = actor history obs 240 + privileged obs 25。
+#   后续 student / adaptation 阶段可切换为 actor history obs，不直接读取 privileged input。
+#
+# Unitree Go2 Task4: Sim2Real / RMA teacher task configuration.
+#
+# This file only defines Task4 configuration parameters. It does not launch
+# IsaacLab AppLauncher or create environment instances. The configuration covers
+# simulation parameters, robot-control parameters, teacher/student observation
+# dimensions, domain randomization, curriculum settings, and reward weights.
+#
+# Gymnasium API:
+#   Environment entry is task4_env.py
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   single actor obs = 48
+#   actor history obs = 240
+#   privileged obs = 25
+#   teacher obs = 265
+#   action dim = 12
+#
+# Training entry is task4_train.py, and model evaluation entry is task4_model_test.py.
+#
+# Engineering notes:
+#   Task4 defaults to teacher_mode=True for training the privileged teacher policy.
+#   teacher obs = actor history obs 240 + privileged obs 25.
+#   A later student / adaptation stage can switch to actor history obs without
+#   directly reading privileged input.
 
 from __future__ import annotations
 

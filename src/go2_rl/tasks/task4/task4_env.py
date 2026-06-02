@@ -1,18 +1,49 @@
 # Copyright (c) 2026
-# Unitree Go2 Task4: Sim2Real / RMA robust locomotion environment.
+# Unitree Go2 Task4: Sim2Real / RMA teacher IsaacLab 环境。
 #
-# Strict refactor notes:
-# 1. This file defines IsaacLab Go2 environment only.
-# 2. It does not start AppLauncher.
-# 3. Default teacher_mode=True:
-#       env.reset()/step() returns actor_history + privileged_obs.
-# 4. If teacher_mode=False:
-#       env.reset()/step() returns actor_history only.
-# 5. Actor single obs dim = 48.
-# 6. Actor history obs dim = 240.
-# 7. Privileged obs dim = 25.
-# 8. Teacher obs dim = 265.
-# 9. Training code will be generated later and will use skrl PPO.
+# 本文件只定义 Task4 IsaacLab 环境，不启动 AppLauncher。
+# 环境采用 Gymnasium step API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# 观测维度:
+#   single actor obs = 48
+#   actor history obs = 240
+#   privileged obs = 25
+#   teacher obs = 265
+#   action dim = 12
+#
+# 训练入口位于 task4_train.py，模型评估入口位于 task4_model_test.py。
+#
+# 工程说明:
+#   teacher_mode=True 时，reset()/step() 返回 actor history 和 privileged obs 拼接后的 teacher obs。
+#   teacher_mode=False 时，reset()/step() 返回 actor history，用于后续 student / adaptation 阶段。
+#   domain randomization 包括 friction、payload mass、COM shift、motor strength、latency 和 external push。
+#   info 中保留 GPU tensor，低频日志阶段再转换为标量，以减少 step 内 CPU 同步。
+#
+# Unitree Go2 Task4: Sim2Real / RMA teacher IsaacLab environment.
+#
+# This file only defines the Task4 IsaacLab environment and does not launch AppLauncher.
+# The environment follows the Gymnasium step API:
+#   reset() -> obs, info
+#   step(action) -> obs, reward, terminated, truncated, info
+#
+# Observation dimensions:
+#   single actor obs = 48
+#   actor history obs = 240
+#   privileged obs = 25
+#   teacher obs = 265
+#   action dim = 12
+#
+# Training entry is task4_train.py, and model evaluation entry is task4_model_test.py.
+#
+# Engineering notes:
+#   When teacher_mode=True, reset()/step() returns teacher obs formed by concatenating
+#   actor history and privileged obs. When teacher_mode=False, reset()/step() returns
+#   actor history for a later student / adaptation stage.
+#   Domain randomization includes friction, payload mass, COM shift, motor strength,
+#   latency, and external push. info keeps GPU tensors and converts them to scalars
+#   only during low-frequency logging to reduce CPU synchronization inside step.
 
 from __future__ import annotations
 
